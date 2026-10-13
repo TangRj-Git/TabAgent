@@ -1,0 +1,20 @@
+[project]
+name = "tabagent"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Administrator", email = "3177065378@qq.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "openai>=3.29.0",
+    "python-dotenv>=1.2.4",
+]
+
+[project.scripts]
+tabagent = "tabagent:main"
+
+[build-system]
+requires = ["uv_build>=0.12.23,<0.13.0"]
+build-backend = "uv_build"
