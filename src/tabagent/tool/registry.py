@@ -28,6 +28,7 @@ SCHEMA_TYPE: dict[type, str] = {
 
 def _build_parameters(
         tool: Callable[..., Any],
+        strict: bool,
 ) -> dict[str, Any]:
     properties: dict[str, Any] = {}
     required: list[str] = []
@@ -44,7 +45,7 @@ def _build_parameters(
         properties[name] = {
             "type": SCHEMA_TYPE[annotation],
         }
-        if parameter.default is inspect.Parameter.empty:
+        if strict or parameter.default is inspect.Parameter.empty:
             required.append(name)
 
     return {
@@ -62,7 +63,7 @@ class ToolRegistry:
             tuple[Callable[..., Any], Function]
         ] = {}
 
-    def register(
+    def register_tool(
             self,
             tool: Callable[..., Any],
             *,
@@ -71,10 +72,10 @@ class ToolRegistry:
             parameters: Optional[dict[str, Any]] = None,
             strict: bool = True,
             output_schema: Optional[dict[str, Any]] = None,
-    ):
+    ) -> Function:
         tool_name = name if name is not None else tool.__name__
         tool_description = description if description is not None else tool.__doc__
-        tool_parameters = parameters if parameters is not None else _build_parameters(tool)
+        tool_parameters = parameters if parameters is not None else _build_parameters(tool, strict)
 
         if tool_name in self._tools:
             raise ValueError(f"Tool {tool_name} already registered")
@@ -89,3 +90,21 @@ class ToolRegistry:
 
         self._tools[tool_name] = (tool, function)
         return function
+
+    def unregister_tool(
+            self,
+            name: str,
+    ) -> Optional[Function]:
+        registered = self._tools.pop(name, None)
+
+        if registered is None:
+            return None
+
+        _, function = registered
+        return function
+
+    def get_functions(self) -> list[Function]:
+        return [
+            function
+            for _, function in self._tools.values()
+        ]

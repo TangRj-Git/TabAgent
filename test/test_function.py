@@ -11,6 +11,7 @@ def test_function() -> None:
 
     signature = inspect.signature(add)
     print(signature)
+    print(signature.parameters)
     print(signature.parameters.items())
     print(signature.return_annotation)
 
