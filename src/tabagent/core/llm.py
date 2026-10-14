@@ -12,20 +12,17 @@ class TabAgentLLM:
     def __init__(
             self,
             *,
-            provider: Optional[str] = None,
             base_url: Optional[str] = None,
             api_key: Optional[str] = None,
             timeout: Optional[float] = 60.0,
             max_retries: Optional[int] = 3,
     ) -> None:
-        self.provider = provider
         self.base_url = base_url
         self.api_key = api_key
         self.timeout = timeout
         self.max_retries = max_retries
 
         self._client = AsyncOpenAI(
-            provider=self.provider,
             base_url=self.base_url,
             api_key=self.api_key,
             timeout=self.timeout,
