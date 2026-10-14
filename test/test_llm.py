@@ -4,6 +4,7 @@ import os
 from typing import Optional
 
 from dotenv import load_dotenv
+from openai.types.responses import Response
 
 from tabagent.core.function import Function
 from tabagent.core.llm import TabAgentLLM
@@ -74,8 +75,6 @@ def test_llm_with_tools() -> None:
 
     history: list[Message] = [UserMessage("先用工具算 12 乘 3，再用工具给结果加 8。")]
 
-    from openai.types.responses import Response
-
     async def run_astream() -> None:
         async with TabAgentLLM(
                 base_url=base_url,
@@ -127,6 +126,8 @@ def test_llm_with_tools() -> None:
                             output=json.dumps(result),
                         )
                     )
+
+                print("=" * 50)
 
             raise RuntimeError("已达到 4 轮调用上限，模型仍在请求调用函数")
 

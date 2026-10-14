@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Optional
 
 
 class Function(dict[str, Any]):
@@ -13,21 +13,21 @@ class Function(dict[str, Any]):
             self,
             *,
             name: str,
-            description: str | None = None,
-            parameters: dict[str, Any],
+            description: Optional[str] = None,
+            parameters: Optional[dict[str, Any]] = None,
             strict: bool = True,
-            output_schema: dict[str, Any] | None = None,
+            output_schema: Optional[dict[str, Any]] = None,
     ) -> None:
         """
         Args:
             name:
                 工具名称。模型发起 function_call 时通过 name 指定工具。
 
-            parameters:
-                工具输入参数的 JSON Schema，不是调用时的实际参数值。
-
             description:
                 工具用途说明，帮助模型判断何时调用以及如何使用。
+
+            parameters:
+                工具输入参数的 JSON Schema，不是调用时的实际参数值。
 
             strict:
                 是否要求模型生成的调用参数符合指定的 JSON Schema。
@@ -40,13 +40,10 @@ class Function(dict[str, Any]):
         super().__init__(
             type="function",
             name=name,
+            description=description,
             parameters=parameters,
             strict=strict,
         )
-
-        # 未提供的可选字段不写入请求字典。
-        if description is not None:
-            self["description"] = description
 
         if output_schema is not None:
             self["output_schema"] = output_schema
