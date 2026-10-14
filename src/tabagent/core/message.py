@@ -1,19 +1,6 @@
-from typing import Any, TypeAlias, Union
+from typing import Any
 
-from openai.types.responses import (
-    ResponseReasoningItem,
-    ResponseOutputMessage,
-    ResponseFunctionToolCall,
-)
-
-# - ResponseReasoningItem：推理上下文。
-# - ResponseOutputMessage：assistant 消息，包含文本或拒绝说明。
-# - ResponseFunctionToolCall：模型发起的函数调用。
-AssistantOutputItem: TypeAlias = Union[
-    ResponseReasoningItem,
-    ResponseOutputMessage,
-    ResponseFunctionToolCall,
-]
+from openai.types.responses import ResponseOutputItem
 
 
 class Message(dict[str, Any]):
@@ -56,7 +43,7 @@ class AssistantMessage(Message):
     应分别创建 AssistantMessage，并按原顺序加入历史。
     """
 
-    def __init__(self, item: AssistantOutputItem) -> None:
+    def __init__(self, item: ResponseOutputItem) -> None:
         super().__init__(
             item.model_dump(
                 # 转换成 JSON 兼容的 Python 数据，返回值仍是字典。

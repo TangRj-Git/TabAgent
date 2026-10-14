@@ -13,8 +13,8 @@ class Function(dict[str, Any]):
             self,
             *,
             name: str,
-            parameters: dict[str, Any],
             description: str | None = None,
+            parameters: dict[str, Any],
             strict: bool = True,
             output_schema: dict[str, Any] | None = None,
     ) -> None:
