@@ -1,7 +1,11 @@
 from types import TracebackType
-from typing import Optional, Self
+from typing import Optional, Self, AsyncIterator
 
 from openai import AsyncOpenAI
+from openai.types.responses import ResponseStreamEvent
+
+from tabagent.core.message import Message
+from tabagent.core.function import Function
 
 
 class TabAgentLLM:
@@ -31,17 +35,21 @@ class TabAgentLLM:
     async def astream(
             self,
             model: Optional[str] = None,
-            system: Optional[str] = None,
-            messages: Optional[list] = None,
-            tools: Optional[list] = None,
-    ):
+            instructions: Optional[str] = None,
+            messages: Optional[list[Message]] = None,
+            tools: Optional[list[Function]] = None,
+    ) -> AsyncIterator[ResponseStreamEvent]:
         stream = await self._client.responses.create(
             model=model,
-            instructions=system,
+            instructions=instructions,
             input=messages,
             tools=tools,
             stream=True,
         )
+
+        async with stream:
+            async for response in stream:
+                yield response
 
     async def aclose(self) -> None:
         await self._client.close()
