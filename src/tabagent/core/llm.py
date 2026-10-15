@@ -48,6 +48,12 @@ class TabAgentLLM:
             async for response in stream:
                 yield response
 
+    async def amodel(self) -> list[str]:
+        return [
+            model.id
+            async for model in self._client.models.list()
+        ]
+
     async def aclose(self) -> None:
         await self._client.close()
 

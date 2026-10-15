@@ -329,3 +329,20 @@ def test_llm_with_input() -> None:
                     )
 
     asyncio.run(run_astream())
+
+
+def test_llm_model_list() -> None:
+    load_dotenv()
+
+    base_url = os.getenv('OPENAI_BASE_URL')
+    api_key = os.getenv('OPENAI_API_KEY')
+
+    async def run_amodel() -> None:
+        async with TabAgentLLM(
+                base_url=base_url,
+                api_key=api_key,
+        ) as llm:
+            models = await llm.amodel()
+            print(models)
+
+    asyncio.run(run_amodel())
