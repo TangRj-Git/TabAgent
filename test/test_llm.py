@@ -28,7 +28,7 @@ def test_llm() -> None:
                     model=model,
                     instructions="请用中文简短回答。",
                     messages=[UserMessage("用一句话介绍 Python。")],
-                    tools=[],
+                    functions=[],
             ):
                 print(event)
 
@@ -89,7 +89,7 @@ def test_llm_with_tools() -> None:
                         model=model,
                         instructions="涉及算术时使用提供的函数；得到最终结果后用中文回答。",
                         messages=history,  # 必须包含之前的函数调用和执行结果。
-                        tools=tools_function,
+                        functions=tools_function,
                 ):
                     print(event)
 
@@ -169,7 +169,7 @@ def test_llm_with_register() -> None:
                         model=model,
                         instructions="涉及算术时使用提供的函数；得到最终结果后用中文回答。",
                         messages=history,
-                        tools=tool_registry.get_functions(),
+                        functions=tool_registry.get_functions(),
                 ):
                     print(event)
 
@@ -267,7 +267,7 @@ def test_llm_with_input() -> None:
                             model=model,
                             instructions="涉及算术时使用提供的函数；得到最终结果后用中文回答。",
                             messages=history,
-                            tools=tool_registry.get_functions(),
+                            functions=tool_registry.get_functions(),
                     ):
                         print(event)
 

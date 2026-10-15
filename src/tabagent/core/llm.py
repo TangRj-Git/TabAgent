@@ -34,13 +34,13 @@ class TabAgentLLM:
             model: Optional[str] = None,
             instructions: Optional[str] = None,
             messages: Optional[list[Message]] = None,
-            tools: Optional[list[Function]] = None,
+            functions: Optional[list[Function]] = None,
     ) -> AsyncIterator[ResponseStreamEvent]:
         stream = await self._client.responses.create(
             model=model,
             instructions=instructions,
             input=messages,
-            tools=tools,
+            tools=functions,
             stream=True,
         )
 
