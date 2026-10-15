@@ -1,6 +1,7 @@
 import inspect
 from typing import Callable, Any, Optional, get_type_hints
 
+from tabagent.core.exceptions import ToolNotFoundError, ToolRegistrationError
 from tabagent.core.function import Function
 
 SCHEMA_TYPE: dict[type, str] = {
@@ -33,16 +34,28 @@ def _build_parameters(
     properties: dict[str, Any] = {}
     required: list[str] = []
 
-    signature = inspect.signature(tool)
-    type_hints = get_type_hints(tool)
+    try:
+        signature = inspect.signature(tool)
+        type_hints = get_type_hints(tool)
+    except Exception as exc:
+        raise ToolRegistrationError(
+            "Cannot inspect the tool signature or resolve its type annotations. "
+            "Provide a supported function or an explicit parameters schema."
+        ) from exc
 
     for name, parameter in signature.parameters.items():
         if name not in type_hints:
-            raise ValueError(f"Parameter {name} has no type hint")
+            raise ToolRegistrationError(
+                f"Parameter {name!r} is missing a type annotation. "
+                "Add an annotation or provide an explicit parameters schema."
+            )
 
         annotation = type_hints.get(name)
         if annotation not in SCHEMA_TYPE:
-            raise ValueError(f"Unsupported type {annotation}")
+            raise ToolRegistrationError(
+                f"Parameter {name!r} has an unsupported type annotation: "
+                f"{annotation!r}. Provide an explicit parameters schema."
+            )
 
         properties[name] = {
             "type": SCHEMA_TYPE[annotation],
@@ -75,12 +88,21 @@ class ToolRegistry:
             strict: bool = True,
             output_schema: Optional[dict[str, Any]] = None,
     ) -> Function:
-        tool_name = name if name is not None else tool.__name__
-        tool_description = description if description is not None else tool.__doc__
-        tool_parameters = parameters if parameters is not None else _build_parameters(tool, strict)
+        if not callable(tool):
+            raise ToolRegistrationError("Only callable objects can be registered as tools.")
+
+        tool_name = name if name is not None else getattr(tool, "__name__", None)
+        if not isinstance(tool_name, str) or not tool_name.strip():
+            raise ToolRegistrationError(
+                "A non-empty tool name is required. Pass name explicitly "
+                "for callables without a __name__ attribute."
+            )
 
         if tool_name in self._tools:
-            raise ValueError(f"Tool {tool_name} already registered")
+            raise ToolRegistrationError(f"Tool {tool_name!r} is already registered.")
+
+        tool_description = description if description is not None else tool.__doc__
+        tool_parameters = parameters if parameters is not None else _build_parameters(tool, strict)
 
         function = Function(
             name=tool_name,
@@ -111,8 +133,8 @@ class ToolRegistry:
     ) -> Callable[..., Any]:
         try:
             return self._tools[name][0]
-        except KeyError:
-            raise ValueError(f"Tool {name} not registered")
+        except KeyError as exc:
+            raise ToolNotFoundError(f"Tool {name!r} is not registered.") from exc
 
     def get_tools(self) -> dict[str, Callable[..., Any]]:
         return {

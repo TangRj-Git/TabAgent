@@ -6,6 +6,7 @@ from typing import Optional
 from dotenv import load_dotenv
 from openai.types.responses import Response
 
+from tabagent.core.exceptions import ModelCallLimitError, ModelStreamError
 from tabagent.core.function import Function
 from tabagent.core.llm import TabAgentLLM
 from tabagent.core.message import UserMessage, AssistantMessage, Message, ToolMessage
@@ -98,7 +99,9 @@ def test_llm_with_tools() -> None:
 
                 # 没有成功完成事件，就不继续执行函数或提交本轮历史。
                 if response is None:
-                    raise RuntimeError(f"第 {round_number} 轮未成功完成")
+                    raise ModelStreamError(
+                        f"Model call {round_number} ended without a response.completed event."
+                    )
 
                 # 保存完整输出，包括推理项、函数调用和文本消息。
                 history.extend(
@@ -130,7 +133,9 @@ def test_llm_with_tools() -> None:
 
                 print("=" * 50)
 
-            raise RuntimeError("已达到 4 轮调用上限，模型仍在请求调用函数")
+            raise ModelCallLimitError(
+                "Reached the limit of 4 model calls before the model produced a final response."
+            )
 
     asyncio.run(run_astream())
 
@@ -178,7 +183,9 @@ def test_llm_with_register() -> None:
 
                 # 没有成功完成事件，就不继续执行函数或提交本轮历史。
                 if response is None:
-                    raise RuntimeError(f"第 {round_number} 轮未成功完成")
+                    raise ModelStreamError(
+                        f"Model call {round_number} ended without a response.completed event."
+                    )
 
                 # 保存完整输出，包括推理项、函数调用和文本消息。
                 history.extend(
@@ -210,7 +217,9 @@ def test_llm_with_register() -> None:
 
                 print("=" * 50)
 
-            raise RuntimeError("已达到 4 轮调用上限，模型仍在请求调用函数")
+            raise ModelCallLimitError(
+                "Reached the limit of 4 model calls before the model produced a final response."
+            )
 
     asyncio.run(run_astream())
 
@@ -247,7 +256,7 @@ def test_llm_with_input() -> None:
                 # -s 会关闭 pytest 的捕获，让你能够在终端输入请求。
                 human_input = await asyncio.to_thread(
                     input,
-                    "请输入请求：",
+                    "Enter a request: ",
                 )
                 human_input = human_input.strip()
 
@@ -274,11 +283,13 @@ def test_llm_with_input() -> None:
                         if event.type == "response.completed":
                             response = event.response
 
-                    print(response.output_text)
-
                     # 没有成功完成事件，就不继续执行函数或提交本轮历史。
                     if response is None:
-                        raise RuntimeError(f"第 {round_number} 轮未成功完成")
+                        raise ModelStreamError(
+                            f"Model call {round_number} ended without a response.completed event."
+                        )
+
+                    print(response.output_text)
 
                     # 保存完整输出，包括推理项、函数调用和文本消息。
                     history.extend(
@@ -313,6 +324,8 @@ def test_llm_with_input() -> None:
 
                     print("=" * 50)
                 else:
-                    raise RuntimeError("已达到 4 轮调用上限，模型仍在请求调用函数")
+                    raise ModelCallLimitError(
+                        "Reached the limit of 4 model calls before the model produced a final response."
+                    )
 
     asyncio.run(run_astream())

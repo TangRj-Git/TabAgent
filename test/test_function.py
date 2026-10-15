@@ -1,6 +1,7 @@
 import inspect
 from typing import get_type_hints, Callable, Any
 
+from tabagent.core.exceptions import ToolRegistrationError
 from tabagent.tool.registry import SCHEMA_TYPE
 
 
@@ -42,7 +43,10 @@ def test_function_with_parameter() -> None:
 
             annotation = type_hints.get(name)
             if annotation not in SCHEMA_TYPE:
-                raise ValueError(f"Unsupported type {annotation}")
+                raise ToolRegistrationError(
+                    f"Parameter {name!r} has an unsupported type annotation: "
+                    f"{annotation!r}. Provide an explicit parameters schema."
+                )
 
             properties[name] = {
                 "type": SCHEMA_TYPE[annotation],
