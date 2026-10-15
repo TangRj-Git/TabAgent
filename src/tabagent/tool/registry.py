@@ -114,6 +114,12 @@ class ToolRegistry:
         except KeyError:
             raise ValueError(f"Tool {name} not registered")
 
+    def get_tools(self) -> dict[str, Callable[..., Any]]:
+        return {
+            name: tool
+            for name, (tool, _) in self._tools.items()
+        }
+
     def get_functions(self) -> list[Function]:
         return [
             function
