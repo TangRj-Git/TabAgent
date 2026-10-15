@@ -37,6 +37,8 @@ def _build_parameters(
     type_hints = get_type_hints(tool)
 
     for name, parameter in signature.parameters.items():
+        if name not in type_hints:
+            raise ValueError(f"Parameter {name} has no type hint")
 
         annotation = type_hints.get(name)
         if annotation not in SCHEMA_TYPE:
@@ -103,8 +105,20 @@ class ToolRegistry:
         _, function = registered
         return function
 
+    def get_tool(
+            self,
+            name: str,
+    ) -> Callable[..., Any]:
+        try:
+            return self._tools[name][0]
+        except KeyError:
+            raise ValueError(f"Tool {name} not registered")
+
     def get_functions(self) -> list[Function]:
         return [
             function
             for _, function in self._tools.values()
         ]
+
+
+tool_registry = ToolRegistry()
