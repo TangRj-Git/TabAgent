@@ -12,8 +12,8 @@ class TabAgentLLM:
     def __init__(
             self,
             *,
-            base_url: Optional[str] = None,
-            api_key: Optional[str] = None,
+            base_url: str,
+            api_key: str,
             timeout: Optional[float] = 60.0,
             max_retries: Optional[int] = 3,
     ) -> None:
@@ -31,7 +31,7 @@ class TabAgentLLM:
 
     async def astream(
             self,
-            model: Optional[str] = None,
+            model: str,
             instructions: Optional[str] = None,
             messages: Optional[list[Message]] = None,
             functions: Optional[list[Function]] = None,
