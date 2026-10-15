@@ -1,3 +1,4 @@
+import asyncio
 import os
 
 from dotenv import load_dotenv
@@ -27,15 +28,35 @@ def test_agent() -> None:
     tool_registry.register_tool(add)
     tool_registry.register_tool(multiply)
 
-    with TabAgentLLM(
-            base_url=base_url,
-            api_key=api_key,
-    ) as llm:
-        agent = TabAgent(
-            llm=llm,
-            model=model,
-            tool_registry=tool_registry,
-        )
+    async def run_astream() -> None:
+        async with TabAgentLLM(
+                base_url=base_url,
+                api_key=api_key,
+        ) as llm:
+            agent = TabAgent(
+                llm=llm,
+                model=model,
+                tool_registry=tool_registry,
+            )
+            messages: list[Message] = []
+            while True:
+                human_input = await asyncio.to_thread(
+                    input,
+                    "Enter a request: ",
+                )
 
-        message: list[Message] = []
-        stream = agent.astream()
+                if human_input.lower() == "exit":
+                    break
+
+                if not human_input:
+                    continue
+
+                messages.append(UserMessage(human_input))
+
+                stream = agent.astream(messages=messages)
+                async for delta in stream:
+                    print(delta, end="", flush=True)
+
+                print()
+
+    asyncio.run(run_astream())
