@@ -119,6 +119,3 @@ class ToolRegistry:
             function
             for _, function in self._tools.values()
         ]
-
-
-tool_registry = ToolRegistry()
