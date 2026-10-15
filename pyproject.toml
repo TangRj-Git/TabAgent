@@ -1,8 +1,14 @@
 [project]
 name = "tabagent"
 version = "0.1.0"
-description = "Add your description here"
+description = "An asynchronous Python agent harness with streamed responses and function calling."
 readme = "README.md"
+keywords = ["agent", "llm", "asyncio", "function-calling"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
 authors = [
     { name = "Administrator", email = "3177065378@qq.com" }
 ]
@@ -20,3 +26,6 @@ tabagent = "tabagent:main"
 [build-system]
 requires = ["uv_build>=0.12.23,<0.13.0"]
 build-backend = "uv_build"
+
+[tool.pytest.ini_options]
+testpaths = ["test"]
