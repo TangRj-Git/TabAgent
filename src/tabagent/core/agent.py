@@ -11,6 +11,8 @@ from tabagent.core.message import Message, AssistantMessage, ToolMessage
 from tabagent.core.response import (
     RESPONSE_COMPLETED,
     RESPONSE_OUTPUT_TEXT_DELTA,
+    RESPONSE_FAILED,
+    RESPONSE_INCOMPLETE, ERROR,
 )
 from tabagent.tool.registry import ToolRegistry
 
@@ -66,15 +68,15 @@ class TabAgent:
             self,
             *,
             llm: TabAgentLLM,
-            model: Optional[str] = None,
+            model: str,
             instructions: Optional[str] = None,
             tool_registry: Optional[ToolRegistry] = None,
-            max_model_calls: Optional[int] = 10,
+            max_model_calls: int = 10,
     ):
         self._llm = llm
-        self._model = model
+        self._model = model.strip()
         self._instructions = instructions
-        self._tool_registry = tool_registry
+        self._tool_registry = tool_registry if tool_registry is not None else ToolRegistry()
         self._max_model_calls = max_model_calls
 
     async def astream(
@@ -82,7 +84,7 @@ class TabAgent:
             messages: List[Message],
     ) -> AsyncGenerator[str, None]:
         functions = deepcopy(self._tool_registry.get_functions())
-        tools = deepcopy(self._tool_registry.get_tools())
+        tools = self._tool_registry.get_tools()
 
         for round_number in range(1, self._max_model_calls + 1):
             response: Optional[Response] = None
@@ -98,8 +100,14 @@ class TabAgent:
                 async for event in stream:
                     if event.type == RESPONSE_OUTPUT_TEXT_DELTA:
                         yield event.delta
-                    if event.type == RESPONSE_COMPLETED:
+                    elif event.type == RESPONSE_COMPLETED:
                         response = event.response
+                    elif event.type == RESPONSE_FAILED:
+                        raise RuntimeError(f"Failed to execute tool {round_number}")
+                    elif event.type == RESPONSE_INCOMPLETE:
+                        raise RuntimeError(f"Failed to execute tool {round_number}")
+                    elif event.type == ERROR:
+                        raise RuntimeError(f"Failed to execute tool {round_number}")
             finally:
                 if inspect.isasyncgen(stream):
                     await stream.aclose()
@@ -107,16 +115,20 @@ class TabAgent:
             if response is None:
                 raise RuntimeError(f"No response received for round {round_number}")
 
-            messages.extend(
-                AssistantMessage(item)
-                for item in response.output
-            )
-
             calls = [
                 item
                 for item in response.output
                 if isinstance(item, ResponseFunctionToolCall)
             ]
+
+            if calls and round_number == self._max_model_calls:
+                raise RuntimeError("Max model calls reached")
+
+            messages.extend(
+                AssistantMessage(item)
+                for item in response.output
+            )
+
             if not calls:
                 return
 
@@ -142,7 +154,7 @@ class TabAgent:
 
                 messages.append(
                     ToolMessage(
-                        call_id=call.id,
+                        call_id=call.call_id,
                         output=output,
                     )
                 )
