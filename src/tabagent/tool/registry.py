@@ -1,4 +1,5 @@
 import inspect
+from copy import deepcopy
 from typing import Callable, Any, Optional, get_type_hints
 
 from tabagent.core.exceptions import ToolNotFoundError, ToolRegistrationError
@@ -147,3 +148,11 @@ class ToolRegistry:
             function
             for _, function in self._tools.values()
         ]
+
+    def get_copy(self) -> "ToolRegistry":
+        registry = ToolRegistry()
+        registry._tools = {
+            name: (tool, deepcopy(function))
+            for name, (tool, function) in self._tools.items()
+        }
+        return registry

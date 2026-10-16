@@ -1,11 +1,14 @@
 from contextlib import aclosing
+from dataclasses import replace
 from types import TracebackType
-from typing import Optional, Self, AsyncGenerator
+from typing import Optional, Self, AsyncGenerator, Sequence
 
 from tabagent.core.agent import TabAgent
 from tabagent.core.exceptions import TabAgentError
 from tabagent.core.llm import TabAgentLLM
 from tabagent.core.message import Message
+from tabagent.core.middleware import MiddlewareManager
+from tabagent.middleware.base_middleware import BaseMiddleware, AppInitRequest
 from tabagent.tool.registry import ToolRegistry
 
 
@@ -33,20 +36,53 @@ class TabAgentApp:
             # LLM 请求配置。
             timeout: Optional[float] = 60.0,
             max_retries: int = 3,
+
+            # Middleware 配置。
+            middlewares: Sequence[BaseMiddleware] = (),
     ) -> None:
-        self._base_url = base_url
-        self._api_key = api_key
-        self._timeout = timeout
-        self._max_retries = max_retries
+        self._config = AppInitRequest(
+            base_url=base_url,
+            api_key=api_key,
+            model=model,
+            instructions=instructions,
+            tool_registry=tool_registry,
+            max_model_calls=max_model_calls,
+            timeout=timeout,
+            max_retries=max_retries,
+        )
 
-        self._model = model
-        self._instructions = instructions
-        self._tool_registry = tool_registry
-        self._max_model_calls = max_model_calls
+        self._middlewares = MiddlewareManager(tuple(middlewares))
 
-        # 进入异步上下文后才创建。
+        self._init_handler = self._middlewares.build_init(self._initialize)
+
         self._llm: Optional[TabAgentLLM] = None
         self._agent: Optional[TabAgent] = None
+
+        self._opening = False
+
+    async def _initialize(
+            self,
+            request: AppInitRequest,
+    ) -> None:
+        if self._llm is not None:
+            raise TabAgentError(
+                "App resources have already been initialized."
+            )
+
+        self._llm = TabAgentLLM(
+            base_url=request.base_url,
+            api_key=request.api_key,
+            timeout=request.timeout,
+            max_retries=request.max_retries,
+        )
+
+        self._agent = TabAgent(
+            llm=self._llm,
+            model=request.model,
+            instructions=request.instructions,
+            tool_registry=request.tool_registry,
+            max_model_calls=request.max_model_calls,
+        )
 
     async def astream(
             self,
@@ -87,32 +123,30 @@ class TabAgentApp:
     async def __aenter__(self) -> Self:
         """创建本实例拥有的 LLM 和 Agent。"""
 
-        if self._llm is not None:
+        if self._opening or self._llm is not None:
             raise TabAgentError("TabAgentApp is already open.")
 
-        llm = TabAgentLLM(
-            base_url=self._base_url,
-            api_key=self._api_key,
-            timeout=self._timeout,
-            max_retries=self._max_retries,
-        )
+        self._opening = True
 
         try:
-            agent = TabAgent(
-                llm=llm,
-                model=self._model,
-                instructions=self._instructions,
-                tool_registry=self._tool_registry,
-                max_model_calls=self._max_model_calls,
-            )
+            # 创建本次初始化的配置，保留原始默认配置。
+            request = replace(self._config)
 
+            if request.tool_registry is not None:
+                request.tool_registry = request.tool_registry.get_copy()
+
+            await self._init_handler(request)
+
+            if self._llm is None or self._agent is None:
+                raise TabAgentError(
+                    "Initialization middleware did not create the LLM and Agent."
+                )
         except BaseException:
-            # Agent 创建失败时，关闭已经创建的 LLM 客户端。
-            await llm.aclose()
+            await self.aclose()
             raise
 
-        self._llm = llm
-        self._agent = agent
+        finally:
+            self._opening = False
 
         return self
 

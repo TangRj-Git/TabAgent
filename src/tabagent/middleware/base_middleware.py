@@ -131,6 +131,14 @@ class BaseMiddleware:
 
         已创建资源的保存和清理由 TabAgentApp 负责。
         """
+
+        # 定义这个方法或创建 partial 时，不会执行到这里。
+        # 真正执行 await 外层handler(request) 后，才会进入这个方法。
+        #
+        # 运行到下面这一行时，会调用下一层并等待它完成。
+        # 下一层可能是另一个中间件，也可能是最终的 _initialize。
+        #
+        # 默认实现不修改 request，只将同一个请求对象交给下一层。
         await call_next(request)
 
     async def wrap_agent(
