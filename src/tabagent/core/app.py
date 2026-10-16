@@ -82,6 +82,7 @@ class TabAgentApp:
             instructions=request.instructions,
             tool_registry=request.tool_registry,
             max_model_calls=request.max_model_calls,
+            middleware_manager=self._middlewares,
         )
 
     async def astream(
