@@ -68,6 +68,7 @@ class TabAgentApp:
             )
 
         # aclosing() 的作用，就是把生成器包装成可用于 async with 的对象，并在退出时调用它的 aclose()。
+        # 异步生成器对象自带 aclose() 方法，由 Python 提供，不需要你自己实现。
         async with aclosing(agent.astream(messages=messages)) as stream:
             async for delta in stream:
                 yield delta
