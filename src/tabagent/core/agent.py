@@ -33,6 +33,7 @@ from tabagent.core.response import (
     RESPONSE_FAILED,
     RESPONSE_INCOMPLETE,
     ERROR,
+    RESPONSE_REFUSAL_DELTA,
 )
 from tabagent.middleware.base_middleware import AgentRequest, ModelRequest, ToolRequest
 from tabagent.tool.registry import ToolRegistry
@@ -87,7 +88,12 @@ async def _execute_tool(
                 )
                 if inspect.isawaitable(result):
                     result = await result
+        except ToolError:
+            # 保留工具已经明确分类的异常。
+            # 交给外层 except ToolError 转换成错误 JSON。
+            raise
         except Exception as exc:
+            # 尚未分类的普通异常，统一包装为工具执行错误。
             raise ToolExecutionError(
                 f"Tool {call.name!r} failed during execution "
                 f"({type(exc).__name__})."
@@ -218,6 +224,8 @@ class TabAgent:
                     async for event in stream:
                         if event.type == RESPONSE_OUTPUT_TEXT_DELTA:
                             yield event.delta
+                        elif event.type == RESPONSE_REFUSAL_DELTA:
+                            yield event.delta
                         elif event.type == RESPONSE_COMPLETED:
                             response = event.response
                         elif event.type == RESPONSE_FAILED:
@@ -328,6 +336,7 @@ class TabAgent:
         """解析调用，经过工具中间件，再交给已有执行器。"""
         try:
             try:
+                # JSON 字符串 → Python 字典
                 arguments = json.loads(call.arguments)
             except (json.JSONDecodeError, TypeError) as exc:
                 raise ToolArgumentsError(
@@ -339,6 +348,7 @@ class TabAgent:
                     f"Arguments for tool {call.name!r} must decode to a JSON object."
                 )
 
+            # id 标识这条函数调用输出项；call_id 用来把函数调用和它的执行结果关联起来。
             request = ToolRequest(
                 call_id=call.call_id,
                 name=call.name,
@@ -357,6 +367,7 @@ class TabAgent:
                     )
 
                 try:
+                    # Python 字典 → JSON 字符串
                     encoded_arguments = json.dumps(
                         request.arguments,
                         ensure_ascii=False,
@@ -381,6 +392,12 @@ class TabAgent:
                     tools,
                 )
 
+            # 倒序遍历中间件，通过 partial 将下一层 handler 绑定为当前中间件的 call_next。
+            # 此时只构建调用链，不执行中间件或 terminal，也不处理 request。
+            # 例如注册顺序为 [A, B]，构建结果为 A(B(terminal))，返回最外层入口。
+            # 执行 await handler(request) 时，才按注册顺序进入各层中间件。
+            # 若每层都调用 await call_next(request) 并正常返回，执行顺序为：
+            # A 前置逻辑 → B 前置逻辑 → terminal → B 后置逻辑 → A 后置逻辑。
             handler = self._middleware_manager.build_tool(execute)
             output = await handler(request)
 

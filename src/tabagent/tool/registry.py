@@ -102,6 +102,28 @@ class ToolRegistry:
         if tool_name in self._tools:
             raise ToolRegistrationError(f"Tool {tool_name!r} is already registered.")
 
+        # 检查函数签名。
+        # 即使显式提供 parameters，也必须符合当前支持的参数形式。
+        try:
+            signature = inspect.signature(tool)
+        except (TypeError, ValueError) as exc:
+            raise ToolRegistrationError(
+                f"Cannot register tool {tool_name!r}: "
+                "its function signature could not be inspected."
+            ) from exc
+
+        for parameter in signature.parameters.values():
+            if parameter.kind not in (
+                    inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                    inspect.Parameter.KEYWORD_ONLY,
+            ):
+                raise ToolRegistrationError(
+                    f"Tool {tool_name!r} has unsupported parameter "
+                    f"{parameter.name!r} ({parameter.kind.name}). "
+                    "Only positional-or-keyword and keyword-only "
+                    "parameters are supported."
+                )
+
         tool_description = description if description is not None else tool.__doc__
         tool_parameters = parameters if parameters is not None else _build_parameters(tool, strict)
 
