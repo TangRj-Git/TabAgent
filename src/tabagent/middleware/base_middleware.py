@@ -6,6 +6,7 @@ from typing import Any, TypeAlias
 from openai.types.responses import ResponseStreamEvent
 
 from tabagent.core.function import Function
+from tabagent.core.llm import TabAgentLLM
 from tabagent.core.message import Message
 from tabagent.tool.registry import ToolRegistry
 
@@ -39,14 +40,20 @@ class AgentRequest:
     中间件可以覆盖本次运行使用的配置。
     """
 
+    # 本次运行使用的消息历史。
     messages: list[Message]
+
+    # 本次运行使用的、已经初始化好的 LLM 客户端。
+    llm: TabAgentLLM
+
+    # 本次运行使用的模型。
     model: str
+
+    # 本次运行使用的工具注册表。
+    tool_registry: ToolRegistry
+
     instructions: str | None = None
     max_model_calls: int = 10
-
-    # None：允许使用所有已注册工具。
-    # 空集合：本次运行禁用工具。
-    allowed_tools: set[str] | None = None
 
 
 @dataclass

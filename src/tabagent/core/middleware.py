@@ -1,7 +1,13 @@
 from functools import partial
 from typing import Sequence
 
-from tabagent.middleware.base_middleware import BaseMiddleware, AppInitHandler, AgentHandler, ModelHandler, ToolHandler
+from tabagent.middleware.base_middleware import (
+    BaseMiddleware,
+    AppInitHandler,
+    AgentHandler,
+    ModelHandler,
+    ToolHandler,
+)
 
 
 class MiddlewareManager:
