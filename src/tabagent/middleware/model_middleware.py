@@ -22,9 +22,10 @@ class ModelMiddleware(BaseMiddleware):
 
     检查内容：
         1. base_url、api_key 和 model 是否为空。
-        2. base_url 的基本格式是否正确。
-        3. 能否使用当前配置查询模型列表。
-        4. 配置的模型是否出现在返回的列表中。
+        2. 规范化模型名称，去除首尾空白。
+        3. max_retries 是否为非负整数。
+        4. base_url 的基本格式是否正确。
+        5. 能否查询模型列表，以及目标模型是否在列表中。
 
     注意：
         模型列表查询成功，只能确认该接口可访问。
@@ -48,6 +49,21 @@ class ModelMiddleware(BaseMiddleware):
                 raise AgentConfigError(
                     f"{name} must be a non-empty string."
                 )
+
+        # 与 Agent 初始化时的处理保持一致。
+        # 只去除首尾空白，保留大小写和模型名称内部字符。
+        request.model = request.model.strip()
+
+        # bool 是 int 的子类，因此需要单独排除。
+        # 0 表示禁用重试。
+        if (
+                isinstance(request.max_retries, bool)
+                or not isinstance(request.max_retries, int)
+                or request.max_retries < 0
+        ):
+            raise AgentConfigError(
+                "max_retries must be a non-negative integer."
+            )
 
         # 检查 URL 的基本结构。
         # 这一步不检查网络是否连通，实际连通性由后面的请求确认。
@@ -139,7 +155,7 @@ class ModelMiddleware(BaseMiddleware):
                 "An SDK error occurred while querying the model list."
             ) from exc
 
-        # 使用服务返回的模型标识进行精确匹配。
+        # 使用规范化后的模型名称进行精确匹配。
         # 不自动切换模型，避免实际使用的模型与用户配置不一致。
         if request.model not in available_models:
             raise AgentConfigError(
@@ -148,6 +164,6 @@ class ModelMiddleware(BaseMiddleware):
             )
 
         # 检查通过后，才进入下一层初始化逻辑。
-        # 将此调用放在上面的 try/except 之外，
+        # 放在上面的 try/except 之外，
         # 避免把后续初始化异常误报为模型列表查询失败。
         await call_next(request)
