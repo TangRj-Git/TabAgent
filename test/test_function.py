@@ -1,8 +1,10 @@
 import inspect
+import json
 from typing import get_type_hints, Callable, Any
 
 from tabagent.core.exceptions import ToolRegistrationError
-from tabagent.tool.registry import SCHEMA_TYPE
+from tabagent.tool.registry import SCHEMA_TYPE, ToolRegistry
+from tabagent.tool.tools.calculate_tool import calculate
 
 
 def test_function() -> None:
@@ -63,3 +65,16 @@ def test_function_with_parameter() -> None:
 
     result = _build_parameters(add)
     print(result)
+
+
+def test_function_with_calculate() -> None:
+    tool_registry = ToolRegistry()
+    function = tool_registry.register_tool(calculate)
+
+    print(
+        json.dumps(
+            function,
+            ensure_ascii=False,  # 中文直接显示。
+            indent=2,  # 缩进排版，方便阅读。
+        )
+    )

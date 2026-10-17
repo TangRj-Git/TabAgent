@@ -1,64 +1,63 @@
 from typing import Any, Optional
 
-
 # 函数工具定义模板
-#
-# {
-#     # 工具种类，固定为 "function"
-#     "type": "function",
-#
-#     # 工具名称，用于识别和调用对应函数
-#     "name": "search_items",
-#
-#     # 工具说明：描述用途、适用场景和返回内容
-#     "description": "根据关键词搜索内容，返回匹配项及其数量。",
-#
-#     # 输入参数的 JSON Schema
-#     "parameters": {
-#         "type": "object",
-#         "properties": {
-#             "query": {
-#                 "type": "string",
-#                 "description": "用于搜索的关键词。",
-#             },
-#             "limit": {
-#                 "type": "integer",
-#                 "description": "最多返回的匹配项数量。",
-#                 "minimum": 1,
-#             },
-#         },
-#
-#         # 必须提供的参数
-#         "required": ["query", "limit"],
-#
-#         # 不允许传入未声明的参数
-#         "additionalProperties": False,
-#     },
-#
-#     # 是否严格约束模型生成的调用参数
-#     "strict": True,
-#
-#     # 可选：描述工具结果字符串中编码的 JSON 数据结构
-#     "output_schema": {
-#         "type": "object",
-#         "properties": {
-#             "items": {
-#                 "type": "array",
-#                 "description": "搜索得到的匹配项。",
-#                 "items": {
-#                     "type": "string",
-#                 },
-#             },
-#             "count": {
-#                 "type": "integer",
-#                 "description": "实际返回的匹配项数量。",
-#             },
-#         },
-#         "required": ["items", "count"],
-#         "additionalProperties": False,
-#     },
-# }
-#
+
+TOOL_TEMPLATE = {
+    # 工具种类，固定为 "function"
+    "type": "function",
+
+    # 工具名称，用于识别和调用对应函数
+    "name": "search_items",
+
+    # 工具说明：描述用途、适用场景和返回内容
+    "description": "根据关键词搜索内容，返回匹配项及其数量。",
+
+    # 输入参数的 JSON Schema
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "query": {
+                "type": "string",
+                "description": "用于搜索的关键词。",
+            },
+            "limit": {
+                "type": "integer",
+                "description": "最多返回的匹配项数量。",
+                "minimum": 1,
+            },
+        },
+
+        # 必须提供的参数
+        "required": ["query", "limit"],
+
+        # 不允许传入未声明的参数
+        "additionalProperties": False,
+    },
+
+    # 是否严格约束模型生成的调用参数
+    "strict": True,
+
+    # 可选：描述工具结果字符串中编码的 JSON 数据结构
+    "output_schema": {
+        "type": "object",
+        "properties": {
+            "items": {
+                "type": "array",
+                "description": "搜索得到的匹配项。",
+                "items": {
+                    "type": "string",
+                },
+            },
+            "count": {
+                "type": "integer",
+                "description": "实际返回的匹配项数量。",
+            },
+        },
+        "required": ["items", "count"],
+        "additionalProperties": False,
+    },
+}
+
 
 class Function(dict[str, Any]):
     """
