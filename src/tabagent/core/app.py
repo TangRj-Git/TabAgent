@@ -37,6 +37,9 @@ class TabAgentApp:
             timeout: Optional[float] = 60.0,
             max_retries: int = 3,
 
+            # LLM 供应商配置。
+            provider: str = "openai",
+
             # Middleware 配置。
             middlewares: Sequence[BaseMiddleware] = (),
     ) -> None:
@@ -49,6 +52,7 @@ class TabAgentApp:
             max_model_calls=max_model_calls,
             timeout=timeout,
             max_retries=max_retries,
+            provider=provider,
         )
 
         self._middleware_manager = MiddlewareManager(tuple(middlewares))
@@ -74,6 +78,7 @@ class TabAgentApp:
         self._llm = TabAgentLLM(
             base_url=request.base_url,
             api_key=request.api_key,
+            provider=request.provider,
             timeout=request.timeout,
             max_retries=request.max_retries,
         )

@@ -30,6 +30,8 @@ class AppInitRequest:
     timeout: float | None = 60.0
     max_retries: int = 3
 
+    provider: str = "openai"
+
 
 @dataclass
 class AgentRequest:
