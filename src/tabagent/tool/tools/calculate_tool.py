@@ -48,6 +48,31 @@ def _factorial(value: Number) -> int:
     return math.factorial(value)
 
 
+def _round(
+        value: Number,
+        ndigits: int | None = None,
+) -> Number:
+    """对数值进行舍入，并限制保留位数的范围。"""
+
+    # 未指定 ndigits 时，保留 round(value) 返回整数的行为。
+    if ndigits is None:
+        return round(value)
+
+    if type(ndigits) is not int:
+        raise ToolArgumentsError(
+            "round() requires an integer digit count."
+        )
+
+    # 负数表示对整数部分进行舍入，例如 -2 表示舍入到百位。
+    # 限制范围，避免内置 round() 在处理整数时生成过大的中间值。
+    if abs(ndigits) > 1000:
+        raise ToolArgumentsError(
+            "The digit count for round() must be between -1000 and 1000."
+        )
+
+    return round(value, ndigits)
+
+
 # 可以直接在公式中使用的常量。
 _CONSTANTS: dict[str, Number] = {
     "pi": math.pi,
@@ -72,7 +97,7 @@ _BINARY_OPERATORS: dict[
 # 可以在公式中调用的函数。
 _FUNCTIONS: dict[str, Callable[..., Number]] = {
     "abs": abs,
-    "round": round,
+    "round": _round,
     "min": min,
     "max": max,
     "sqrt": math.sqrt,
@@ -199,7 +224,8 @@ def calculate(expression: str) -> Number:
     Use round(value, digits) to round the result.
 
     Limits: 2000 characters, 200 AST nodes, absolute exponents up to 1000,
-    a conservative 4096-bit integer limit, and factorial inputs from 0 to 500.
+    round() digits from -1000 to 1000, a conservative 4096-bit integer limit,
+    and factorial inputs from 0 to 500.
     No variables, equations, complex numbers, differentiation, or integration.
     Floating-point calculations may have rounding errors.
 
