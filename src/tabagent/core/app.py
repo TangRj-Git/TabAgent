@@ -51,9 +51,11 @@ class TabAgentApp:
             max_retries=max_retries,
         )
 
-        self._middlewares = MiddlewareManager(tuple(middlewares))
+        self._middleware_manager = MiddlewareManager(tuple(middlewares))
 
-        self._init_handler = self._middlewares.build_init(self._initialize)
+        # 初始化中间件包围的是整个 _initialize(request)，也就是创建 LLM 和 Agent 的过程。
+        # 在进入这个过程之前，可以修改 AppInitRequest 中的参数。
+        self._init_handler = self._middleware_manager.build_init(self._initialize)
 
         self._llm: Optional[TabAgentLLM] = None
         self._agent: Optional[TabAgent] = None
@@ -82,7 +84,7 @@ class TabAgentApp:
             instructions=request.instructions,
             tool_registry=request.tool_registry,
             max_model_calls=request.max_model_calls,
-            middleware_manager=self._middlewares,
+            middleware_manager=self._middleware_manager,
         )
 
     async def astream(
@@ -133,7 +135,12 @@ class TabAgentApp:
             # 创建本次初始化的配置，保留原始默认配置。
             request = replace(self._config)
 
+            # 未配置工具注册表时，保持 None。
             if request.tool_registry is not None:
+                # 为本次请求创建独立的工具注册表副本。
+                # 后续中间件可以在副本中动态注册或删除工具，
+                # 避免影响 Agent 的默认注册表以及其他请求。
+                # 已有工具定义的内部字段是否也被复制，取决于 get_copy() 的实现。
                 request.tool_registry = request.tool_registry.get_copy()
 
             await self._init_handler(request)
