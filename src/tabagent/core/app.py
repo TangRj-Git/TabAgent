@@ -79,6 +79,15 @@ class TabAgentApp:
             self,
             request: AppInitRequest,
     ) -> None:
+        # 初始化阶段：创建 LLM 和 Agent，保存后续运行使用的默认配置。
+        #
+        # 运行阶段：每次执行任务时，根据默认配置创建新的 AgentRequest。
+        # 中间件可以在交给下一层执行之前，修改本次运行的模型、指令、工具注册表、调用次数上限，或者替换本次使用的、已经初始化好的 LLM 客户端。
+        # Agent 最终使用经过中间件处理后的请求参数执行任务。
+        #
+        # 修改请求中的配置字段或替换客户端引用，不会自动修改 Agent 保存的默认配置。
+        # 但如果直接修改共享对象的内部状态，仍可能影响其他运行。
+
         if self._llm is not None:
             raise TabAgentError(
                 "App resources have already been initialized."
@@ -157,6 +166,10 @@ class TabAgentApp:
                 # 已有工具定义的内部字段是否也被复制，取决于 get_copy() 的实现。
                 request.tool_registry = request.tool_registry.get_copy()
 
+            # 初始化中间件接收并操作这里传入的 AppInitRequest 对象 request。
+            # 中间件可以在 await call_next(request) 之前修改 request 的字段，然后将修改后的 request 继续传给下一层。
+            # 最终 _initialize(request) 使用这些参数创建 LLM 和 Agent。
+            # 对象创建后，再修改 request 不会自动更新已经创建的对象。
             await self._init_handler(request)
 
             if self._llm is None or self._agent is None:

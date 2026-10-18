@@ -201,8 +201,9 @@ class TabAgent:
         functions = deepcopy(request.tool_registry.get_functions())
         tools = request.tool_registry.get_tools()
 
-        # 当前 ModelRequest 没有 llm 字段，
-        # 将本次运行选定的客户端绑定到终端处理函数。
+        # 绑定本次运行使用的、已经初始化好的 LLM 客户端。
+        # 模型中间件可以修改后续传入的 ModelRequest 对象，包括具体模型名称等参数。
+        # 最终由 _call_model(llm, model_request) 使用绑定的客户端和修改后的参数调用模型。
         model_handler = self._middleware_manager.build_model(
             partial(self._call_model, request.llm)
         )
@@ -219,6 +220,10 @@ class TabAgent:
                 functions=deepcopy(functions),
             )
 
+            # partial 固定 _call_model 的第一个参数 llm。
+            # build_model 再在这个函数外面包装模型中间件：
+            # 没有中间件时，model_handler 就是固定了 llm 参数的 _call_model；
+            # 有中间件时，model_handler 是最外层入口，最终调用内部的 _call_model。
             async with aclosing(model_handler(model_request)) as stream:
                 try:
                     async for event in stream:
@@ -324,6 +329,8 @@ class TabAgent:
             max_model_calls=self._max_model_calls,
         )
 
+        # Agent 中间件可以修改这里传入的 AgentRequest 对象 request。
+        # 修改后的 request 会继续传给下一层中间件，最终由 _run_agent(request) 使用这些参数执行任务。
         async with aclosing(self._agent_handler(request)) as stream:
             async for delta in stream:
                 yield delta
