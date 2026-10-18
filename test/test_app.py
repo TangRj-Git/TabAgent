@@ -11,6 +11,9 @@ from tabagent.core.app import TabAgentApp
 from tabagent.core.message import UserMessage, Message
 from tabagent.middleware.base_middleware import BaseMiddleware, AppInitHandler, AppInitRequest, AgentHandler, \
     AgentRequest, ModelHandler, ModelRequest, ToolHandler, ToolRequest
+from tabagent.middleware.logging_middleware import LoggingMiddleware
+from tabagent.middleware.model_middleware import ModelMiddleware
+from tabagent.middleware.tool_middleware import ToolMiddleware
 from tabagent.tool.registry import ToolRegistry
 
 
@@ -189,6 +192,7 @@ def test_app() -> None:
         async with TabAgentApp(
                 base_url=base_url,
                 api_key=api_key,
+                workspace="",
                 model=model,
                 instructions="Use the available tools for arithmetic.",
                 tool_registry=tool_registry,
@@ -225,6 +229,7 @@ def test_app_with_middleware() -> None:
         async with TabAgentApp(
                 base_url=base_url,
                 api_key=api_key,
+                workspace="",
                 model=model,
                 instructions="Use the available tools for arithmetic.",
                 tool_registry=tool_registry,
@@ -234,5 +239,63 @@ def test_app_with_middleware() -> None:
                 async for delta in stream:
                     print(delta, end="", flush=True)
                 print()
+
+    asyncio.run(run())
+
+
+def test_app_with_file() -> None:
+    load_dotenv()
+
+    base_url = os.getenv('OPENAI_BASE_URL')
+    api_key = os.getenv('OPENAI_API_KEY')
+    model = os.getenv('OPENAI_MODEL')
+
+    instructions = """
+    Help the user complete their request using the available tools when needed.
+    Use the configured workspace as the default directory for local operations.
+    Base your answers on actual information and tool results.
+    Clearly report errors, and do not claim success when an operation fails.
+    Keep your responses clear and concise.
+    """
+
+    workspace = "D:\\tabagent-test"
+
+    tool_registry = ToolRegistry()
+
+    tool_middleware = ToolMiddleware()
+    model_middleware = ModelMiddleware()
+    logging_middleware = LoggingMiddleware()
+    middlewares = (model_middleware, tool_middleware, logging_middleware)
+
+    messages: list[Message] = []
+
+    async def run() -> None:
+        async with TabAgentApp(
+                base_url=base_url,
+                api_key=api_key,
+                workspace=workspace,
+                model=model,
+                instructions=instructions,
+                tool_registry=tool_registry,
+                middlewares=middlewares,
+        ) as app:
+            while True:
+                human_input = await asyncio.to_thread(
+                    input,
+                    "Enter a request: ",
+                )
+
+                if human_input.lower() == "exit":
+                    break
+
+                if not human_input:
+                    continue
+
+                messages.append(UserMessage(human_input))
+
+                async with aclosing(app.astream(messages=messages)) as stream:
+                    async for delta in stream:
+                        print(delta, end="", flush=True)
+                    print()
 
     asyncio.run(run())
