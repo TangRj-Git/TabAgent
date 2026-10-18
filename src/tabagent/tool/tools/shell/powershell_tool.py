@@ -32,9 +32,10 @@ PARAMETERS = {
 
 
 def _build_arguments(command: str) -> list[str]:
-    # 使用编码脚本传递原始命令，避免额外的命令行引号转义。
-    # 统一 PowerShell 编码，并保留本机程序的退出码。
+    # 使用编码脚本保留引号和换行，通过 -Command 解码执行。
+    # 避免 -EncodedCommand 在重定向输出时将额外输出流序列化为 CLIXML。
     script = (
+            "$ProgressPreference = 'SilentlyContinue'\n"
             "$ErrorActionPreference = 'Stop'\n"
             "$utf8 = [System.Text.UTF8Encoding]::new($false)\n"
             "[Console]::InputEncoding = $utf8\n"
@@ -54,12 +55,18 @@ def _build_arguments(command: str) -> list[str]:
               "}\n"
     )
     encoded = base64.b64encode(script.encode("utf-16-le")).decode("ascii")
+    launcher = (
+        "& ([ScriptBlock]::Create([Text.Encoding]::Unicode.GetString("
+        f"[Convert]::FromBase64String('{encoded}'))))"
+    )
     return [
         "-NoLogo",
         "-NoProfile",
         "-NonInteractive",
-        "-EncodedCommand",
-        encoded,
+        "-OutputFormat",
+        "Text",
+        "-Command",
+        launcher,
     ]
 
 
@@ -92,5 +99,11 @@ def create_powershell_tool(workspace: str | Path) -> ShellTool:
             base.description()
             + "\nWindows PowerShell 5.1 does not support && or ||; "
               "these operators require PowerShell 7 or later."
+              "\nWarnings and information are rendered as text and may appear "
+              "in stdout. Progress output is disabled. Check exit_code and "
+              "timed_out to determine whether execution succeeded."
+              "\nThe last native program's exit code is preserved, even if "
+              "a later PowerShell cmdlet succeeds. Use exit 0 after handling "
+              "a native program failure, or exit N to set an explicit code."
     )
     return powershell

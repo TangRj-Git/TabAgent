@@ -10,7 +10,7 @@ import signal
 import subprocess
 from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import TypeAlias
+from typing import Any, TypeAlias
 
 from tabagent.core.exceptions import ToolArgumentsError, ToolExecutionError
 
@@ -112,6 +112,9 @@ class BaseShell:
 
         self.name = name
         self._build_arguments = build_arguments
+        self._version_arguments = list(version_arguments)
+        self._version_lock = asyncio.Lock()
+        self.version: str | None = None
 
         for executable_name in executable_names:
             executable = shutil.which(executable_name)
@@ -124,45 +127,46 @@ class BaseShell:
                 f"{name} is not installed or is not on PATH."
             )
 
-        # 初始化时读取一次版本，后续调用复用解释器及其说明。
-        try:
-            result = subprocess.run(
-                [self.executable, *version_arguments],
-                cwd=self.workspace,
-                env=_environment(),
-                stdin=subprocess.DEVNULL,
-                capture_output=True,
-                encoding="utf-8",
-                errors="replace",
-                timeout=5,
-                creationflags=(
-                    subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
-                ),
-            )
-        except (OSError, subprocess.TimeoutExpired) as exc:
-            raise ToolExecutionError(
-                f"The {name} version could not be determined."
-            ) from exc
+    async def _ensure_version(self) -> None:
+        """首次执行时异步查询版本；并发调用共用缓存，注册时不启动进程。"""
+        if self.version is not None:
+            return
 
-        if result.returncode != 0 or not result.stdout.strip():
-            raise ToolExecutionError(
-                f"The {name} version could not be determined."
+        async with self._version_lock:
+            if self.version is not None:
+                return
+
+            result = await self._run_process(
+                self._version_arguments,
+                self.workspace,
+                timeout=5.0,
             )
-        self.version = result.stdout.strip().splitlines()[0]
+            if (
+                    result["timed_out"]
+                    or result["exit_code"] != 0
+                    or not result["stdout"].strip()
+            ):
+                raise ToolExecutionError(
+                    f"The {self.name} version could not be determined."
+                )
+            self.version = result["stdout"].strip().splitlines()[0]
 
     def description(self) -> str:
         """生成当前解释器的实际运行环境说明，供注册工具时使用。"""
         return (
             f"Run non-interactive {self.name} commands on {platform.system()} "
             "and wait for the final result.\n"
-            f"Shell version: {self.version}. Use {self.name} syntax.\n"
+            f"Shell executable: {self.executable}. Use {self.name} syntax.\n"
+            "The shell version is detected once on first use and returned "
+            "as shell_version.\n"
             f"Default workspace: {self.workspace}. Relative cwd paths use "
             "this directory; absolute paths do not change the default.\n"
             "Each call starts a new process. Directory and environment changes "
             "do not persist between calls. Interactive input and detached "
             "background jobs are not supported.\n"
             "Returns JSON containing exit_code, stdout, stderr, timed_out, "
-            "stdout_truncated, and stderr_truncated. Each output stream retains "
+            "stdout_truncated, stderr_truncated, and shell_version. "
+            "Each output stream retains "
             "at most its last 25 KiB / 1,000 lines. Output is decoded as UTF-8 "
             "with replacement for invalid bytes.\n"
             "Timeout or cancellation attempts to stop the process tree. "
@@ -207,7 +211,22 @@ class BaseShell:
                 f"Working directory does not exist: {cwd!r}."
             )
 
-        arguments = [self.executable, *self._build_arguments(command)]
+        await self._ensure_version()
+        result = await self._run_process(
+            self._build_arguments(command),
+            directory,
+            timeout,
+        )
+        result["shell_version"] = self.version
+        return json.dumps(result, ensure_ascii=False)
+
+    async def _run_process(
+            self,
+            arguments: list[str],
+            directory: Path,
+            timeout: float,
+    ) -> dict[str, Any]:
+        """版本查询和命令执行共用输出限制、超时及取消清理逻辑。"""
         platform_options = (
             {"creationflags": subprocess.CREATE_NO_WINDOW}
             if os.name == "nt"
@@ -215,6 +234,7 @@ class BaseShell:
         )
         try:
             process = await asyncio.create_subprocess_exec(
+                self.executable,
                 *arguments,
                 cwd=directory,
                 env=_environment(),
@@ -251,14 +271,11 @@ class BaseShell:
 
         output, output_truncated = stdout.result()
         error, error_truncated = stderr.result()
-        return json.dumps(
-            {
-                "exit_code": process.returncode,
-                "stdout": output,
-                "stderr": error,
-                "timed_out": timed_out,
-                "stdout_truncated": output_truncated,
-                "stderr_truncated": error_truncated,
-            },
-            ensure_ascii=False,
-        )
+        return {
+            "exit_code": process.returncode,
+            "stdout": output,
+            "stderr": error,
+            "timed_out": timed_out,
+            "stdout_truncated": output_truncated,
+            "stderr_truncated": error_truncated,
+        }

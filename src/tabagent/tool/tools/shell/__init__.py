@@ -28,7 +28,7 @@ SHELL_TOOL_PARAMETERS = {
 
 
 def create_shell_tool(workspace: str | Path) -> ShellTool:
-    """只创建当前系统对应的工具，并在初始化时确定解释器及其版本。"""
+    """只创建当前系统对应的工具；固定解释器，版本在首次执行时异步查询。"""
     if sys.platform == "win32":
         return create_powershell_tool(workspace)
     if sys.platform == "linux":
