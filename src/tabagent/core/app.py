@@ -1,5 +1,6 @@
 from contextlib import aclosing
 from dataclasses import replace
+from pathlib import Path
 from types import TracebackType
 from typing import Optional, Self, AsyncGenerator, Sequence
 
@@ -27,6 +28,9 @@ class TabAgentApp:
             base_url: str,
             api_key: str,
 
+            # 默认项目目录。
+            workspace: str | Path,
+
             # Agent 配置。
             model: str,
             instructions: Optional[str] = None,
@@ -43,9 +47,14 @@ class TabAgentApp:
             # Middleware 配置。
             middlewares: Sequence[BaseMiddleware] = (),
     ) -> None:
+        # 在创建 App 时固定绝对路径。
+        # 如果传入相对路径，以此时进程的工作目录为基准。
+        workspace_path = Path(workspace).expanduser().resolve()
+
         self._config = AppInitRequest(
             base_url=base_url,
             api_key=api_key,
+            workspace=workspace_path,
             model=model,
             instructions=instructions,
             tool_registry=tool_registry,

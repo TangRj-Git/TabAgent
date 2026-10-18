@@ -1,6 +1,7 @@
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import aclosing
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, TypeAlias
 
 from openai.types.responses import ResponseStreamEvent
@@ -14,13 +15,17 @@ from tabagent.tool.registry import ToolRegistry
 @dataclass
 class AppInitRequest:
     """
-    TabAgentApp 创建 LLM 和 Agent 时使用的配置。
+    TabAgentApp 的初始化配置。
 
-    初始化中间件可以在对象创建之前修改这些参数。
+    workspace 是文件工具使用的固定默认项目目录。
+    初始化中间件根据这些配置创建工具、LLM 和 Agent。
     """
 
     base_url: str
     api_key: str = field(repr=False)
+
+    # 由 TabAgentApp 转换为绝对路径。
+    workspace: Path
 
     model: str
     instructions: str | None = None

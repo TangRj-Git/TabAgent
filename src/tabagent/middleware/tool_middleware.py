@@ -3,16 +3,16 @@ from tabagent.middleware.base_middleware import (
     AppInitRequest,
     BaseMiddleware,
 )
+from tabagent.tool.tools import create_tools
 from tabagent.tool.registry import ToolRegistry
-from tabagent.tool.tools.calculate_tool import calculate
 
 
 class ToolMiddleware(BaseMiddleware):
     """
-    在 App 初始化阶段统一注册默认工具。
+    在 App 初始化阶段统一创建并注册默认工具。
 
-    注册完成后，将配置交给下一层创建 LLM 和 Agent。
-    后续每次 Agent 运行都会获得工具注册表的副本。
+    文件工具绑定 AppInitRequest.workspace。
+    后续 Agent 运行使用已经注册的工具。
     """
 
     async def wrap_init(
@@ -20,26 +20,32 @@ class ToolMiddleware(BaseMiddleware):
             call_next: AppInitHandler,
             request: AppInitRequest,
     ) -> None:
-        # 调用方没有提供工具注册表时，在这里创建。
         if request.tool_registry is None:
             request.tool_registry = ToolRegistry()
 
         registry = request.tool_registry
+        registered_names = set(registry.get_tools())
 
-        # 默认工具统一在这里维护。
-        # 后续添加工具时，导入对应函数并加入这个元组。
-        default_tools = (
-            calculate,
+        # 创建工具函数，并取得各工具手动定义的参数 schema。
+        default_tools = create_tools(
+            workspace=request.workspace
         )
 
-        for tool in default_tools:
-            # 保留已经注册的同名工具，避免重复注册。
-            if tool.__name__ in registry.get_tools():
+        for tool, parameters in default_tools:
+            tool_name = tool.__name__
+
+            # 延续现有行为：调用方提供的同名工具优先。
+            if tool_name in registered_names:
                 continue
 
-            # 注册是同步操作，只保存函数及其定义，不执行工具。
-            registry.register_tool(tool)
+            # 显式提供 parameters，跳过自动参数 schema 构建。
+            registry.register_tool(
+                tool=tool,
+                name=tool_name,
+                parameters=parameters,
+            )
 
-        # 将包含默认工具的配置交给下一层。
-        # 最终创建的 Agent 会保存这个工具注册表。
+            registered_names.add(tool_name)
+
+        # 将完成工具注册的配置交给下一层。
         await call_next(request)

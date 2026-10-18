@@ -206,6 +206,22 @@ def _evaluate(node: ast.AST) -> Number:
     return _check_number(result)
 
 
+PARAMETERS = {
+    "type": "object",
+    "properties": {
+        "expression": {
+            "type": "string",
+            "description": (
+                "Mathematical expression to evaluate, "
+                "for example '(12 + 8) * 4'."
+            )
+        }
+    },
+    "required": ["expression"],
+    "additionalProperties": False
+}
+
+
 def calculate(expression: str) -> Number:
     """
     Evaluate a real-valued mathematical expression.
