@@ -5,7 +5,7 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any, TypeAlias
 
-from tabagent.tool.tools.calculate_tool import (
+from tabagent.tool.tools.calulate import (
     PARAMETERS as CALCULATE_PARAMETERS,
     calculate,
 )

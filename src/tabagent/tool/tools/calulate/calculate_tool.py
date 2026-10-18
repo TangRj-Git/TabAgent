@@ -94,31 +94,84 @@ _BINARY_OPERATORS: dict[
     ast.Pow: _power,
 }
 
-# 可以在公式中调用的函数。
-_FUNCTIONS: dict[str, Callable[..., Number]] = {
-    "abs": abs,
-    "round": _round,
-    "min": min,
-    "max": max,
-    "sqrt": math.sqrt,
-    "exp": math.exp,
-    "log": math.log,
-    "log10": math.log10,
-    "log2": math.log2,
-    "sin": math.sin,
-    "cos": math.cos,
-    "tan": math.tan,
-    "asin": math.asin,
-    "acos": math.acos,
-    "atan": math.atan,
-    "atan2": math.atan2,
-    "radians": math.radians,
-    "degrees": math.degrees,
-    "floor": math.floor,
-    "ceil": math.ceil,
-    "pow": _power,
-    "factorial": _factorial,
+# 函数定义：(可执行函数，最少参数数量，最多参数数量)。
+# 最多参数数量为 None，表示不单独限制；仍受表达式规模限制。
+_FUNCTIONS: dict[
+    str,
+    tuple[Callable[..., Number], int, int | None],
+] = {
+    "abs": (abs, 1, 1),
+    "round": (_round, 1, 2),
+    "min": (min, 2, None),
+    "max": (max, 2, None),
+    "sqrt": (math.sqrt, 1, 1),
+    "exp": (math.exp, 1, 1),
+    "log": (math.log, 1, 2),
+    "log10": (math.log10, 1, 1),
+    "log2": (math.log2, 1, 1),
+    "sin": (math.sin, 1, 1),
+    "cos": (math.cos, 1, 1),
+    "tan": (math.tan, 1, 1),
+    "asin": (math.asin, 1, 1),
+    "acos": (math.acos, 1, 1),
+    "atan": (math.atan, 1, 1),
+    "atan2": (math.atan2, 2, 2),
+    "radians": (math.radians, 1, 1),
+    "degrees": (math.degrees, 1, 1),
+    "floor": (math.floor, 1, 1),
+    "ceil": (math.ceil, 1, 1),
+    "pow": (_power, 2, 2),
+    "factorial": (_factorial, 1, 1),
 }
+
+
+def _validate_function_arguments(
+        name: str,
+        arguments: list[Number],
+) -> None:
+    """检查函数参数数量，以及已知的数学定义域。"""
+    _, minimum, maximum = _FUNCTIONS[name]
+    count = len(arguments)
+
+    if count < minimum or (maximum is not None and count > maximum):
+        if maximum is None:
+            expected = f"at least {minimum}"
+        elif minimum == maximum:
+            expected = f"exactly {minimum}"
+        else:
+            expected = f"{minimum} or {maximum}"
+
+        noun = "argument" if minimum == maximum == 1 else "arguments"
+
+        raise ToolArgumentsError(
+            f"{name}() requires {expected} numeric {noun}; "
+            f"received {count}."
+        )
+
+    if name == "sqrt" and arguments[0] < 0:
+        raise ToolArgumentsError(
+            "sqrt() requires a non-negative argument."
+        )
+
+    if name in ("log", "log10", "log2"):
+        if arguments[0] <= 0:
+            raise ToolArgumentsError(
+                f"{name}() requires a positive argument."
+            )
+
+        if name == "log" and count == 2:
+            base = arguments[1]
+
+            if base <= 0 or base == 1:
+                raise ToolArgumentsError(
+                    "The logarithm base must be positive "
+                    "and must not equal 1."
+                )
+
+    if name in ("asin", "acos") and not -1 <= arguments[0] <= 1:
+        raise ToolArgumentsError(
+            f"{name}() requires an argument between -1 and 1."
+        )
 
 
 def _check_number(value: object) -> Number:
@@ -180,14 +233,16 @@ def _evaluate(node: ast.AST) -> Number:
 
     # 函数调用，例如 sqrt(81)、log(100, 10)。
     elif isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
-        if node.func.id not in _FUNCTIONS:
+        name = node.func.id
+
+        if name not in _FUNCTIONS:
             raise ToolArgumentsError(
-                f"Unknown function: {node.func.id!r}."
+                f"Unknown function: {name!r}."
             )
 
         if node.keywords:
             raise ToolArgumentsError(
-                "Keyword arguments are not supported."
+                f"{name}() accepts positional arguments only."
             )
 
         arguments = [
@@ -195,7 +250,10 @@ def _evaluate(node: ast.AST) -> Number:
             for argument in node.args
         ]
 
-        result = _FUNCTIONS[node.func.id](*arguments)
+        _validate_function_arguments(name, arguments)
+
+        function, _, _ = _FUNCTIONS[name]
+        result = function(*arguments)
 
     else:
         raise ToolArgumentsError(
@@ -237,7 +295,14 @@ def calculate(expression: str) -> Number:
     Trigonometric angles use radians. Use sin(radians(30)) for degrees.
     Multiplication must be explicit: use 2 * pi instead of 2pi.
     The % operator means remainder, not percentage.
-    Use round(value, digits) to round the result.
+    Functions accept positional arguments only.
+    min() and max() require at least two numeric arguments.
+    pow(base, exponent) accepts exactly two arguments.
+    Use round(value) or round(value, digits).
+    round() follows Python rounding rules, including ties to even.
+    Floating-point representation can affect rounding results.
+    Some math functions convert inputs to floats and may overflow
+    even when an integer is within the allowed bit limit.
 
     Limits: 2000 characters, 200 AST nodes, absolute exponents up to 1000,
     round() digits from -1000 to 1000, a conservative 4096-bit integer limit,
@@ -277,7 +342,25 @@ def calculate(expression: str) -> Number:
     try:
         return _evaluate(tree.body)
 
-    except (ArithmeticError, ValueError, TypeError) as exc:
+    except ZeroDivisionError as exc:
         raise ToolExecutionError(
-            f"Calculation failed: {exc}"
+            "Division by zero is undefined. "
+            "Check divisors and negative powers of zero."
+        ) from exc
+
+    except OverflowError as exc:
+        raise ToolExecutionError(
+            "The calculation exceeds the supported floating-point range. "
+            "Use smaller input values."
+        ) from exc
+
+    except ValueError as exc:
+        raise ToolExecutionError(
+            "The calculation is undefined for the supplied arguments."
+        ) from exc
+
+    except (ArithmeticError, TypeError) as exc:
+        raise ToolExecutionError(
+            "The calculation could not be completed "
+            "with the supplied arguments."
         ) from exc

@@ -4,7 +4,7 @@ from typing import get_type_hints, Callable, Any
 
 from tabagent.core.exceptions import ToolRegistrationError
 from tabagent.tool.registry import SCHEMA_TYPE, ToolRegistry
-from tabagent.tool.tools.calculate_tool import calculate
+from tabagent.tool.tools.calulate.calculate_tool import calculate
 
 
 def test_function() -> None:

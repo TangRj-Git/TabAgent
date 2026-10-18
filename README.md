@@ -158,7 +158,7 @@ Agent 中间件拿到本次运行的工具注册表副本，可以动态注册�
 
 自动生成参数 Schema 目前采用简单类型映射。对于 `list`、`tuple`、`dict`、`list[int]`、联合类型或复杂嵌套结构，请通过 `register_tool(parameters=...)` 显式提供完整 Schema；当前自动映射不会补齐数组元素和嵌套对象的结构。默认 `strict=True` 时，自动生成的 Schema 会将全部参数列入 `required`，包括带 Python 默认值的参数。
 
-已有的 [calculate_tool.py](src/tabagent/tool/tools/calculate_tool.py) 提供 `calculate(expression: str)`，支持四则运算、乘方和常见数学函数，可以直接注册使用。`web_search_tool.py` 当前尚未实现。
+已有的 [calculate_tool.py](src/tabagent/tool/tools/calulate/calculate_tool.py) 提供 `calculate(expression: str)`，支持四则运算、乘方和常见数学函数，可以直接注册使用。`web_search_tool.py` 当前尚未实现。
 
 ## 日志配置
 
