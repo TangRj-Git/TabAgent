@@ -24,11 +24,15 @@ def parameters_schema(properties: dict[str, Any]) -> dict[str, Any]:
         "type": "object",
         "properties": properties,
         "required": list(properties),
-        "additionalProperties": False,
+        "additionalProperties": False
     }
 
 
-def positive_integer(value: int, name: str, maximum: int) -> None:
+def positive_integer(
+        value: int,
+        name: str,
+        maximum: int
+) -> None:
     if type(value) is not int or not 1 <= value <= maximum:
         raise ToolArgumentsError(f"{name} must be an integer between 1 and {maximum}.")
 
@@ -36,7 +40,7 @@ def positive_integer(value: int, name: str, maximum: int) -> None:
 def page(
         items: Iterable[dict[str, Any]],
         limit: int,
-        cursor: str | None,
+        cursor: str | None
 ) -> dict[str, Any]:
     """按稳定排序后的偏移分页；目录变化时应从第一页重新查询。"""
     positive_integer(limit, "limit", 1000)
@@ -58,7 +62,10 @@ def page(
             break
         results.append(item)
         size += item_size
-    return {"items": results, "next_cursor": next_cursor}
+    return {
+        "items": results,
+        "next_cursor": next_cursor
+    }
 
 
 class BaseFile:
@@ -112,7 +119,11 @@ class BaseFile:
             raise ToolArgumentsError("The file is not UTF-8 text.") from exc
         if "\0" in content:
             raise ToolArgumentsError("Binary files are not supported by text tools.")
-        return content, hashlib.sha256(raw).hexdigest(), raw.startswith(b"\xef\xbb\xbf")
+        return (
+            content,
+            hashlib.sha256(raw).hexdigest(),
+            raw.startswith(b"\xef\xbb\xbf")
+        )
 
     @staticmethod
     def encode(content: str, bom: bool = False) -> bytes:
@@ -157,7 +168,7 @@ class BaseFile:
             self,
             root: Path,
             respect_ignore: bool,
-            skipped: list[dict[str, str]],
+            skipped: list[dict[str, str]]
     ) -> Iterator[tuple[Path, str]]:
         """递归遍历；不进入符号链接目录，Git 可用时应用仓库忽略规则。"""
         if type(respect_ignore) is not bool:
@@ -167,8 +178,15 @@ class BaseFile:
         if git:
             try:
                 probe = subprocess.run(
-                    [git, "-C", str(root), "rev-parse", "--show-toplevel"],
-                    capture_output=True, timeout=10,
+                    [
+                        git,
+                        "-C",
+                        str(root),
+                        "rev-parse",
+                        "--show-toplevel"
+                    ],
+                    capture_output=True,
+                    timeout=10
                 )
                 use_git = probe.returncode == 0
             except (OSError, subprocess.TimeoutExpired) as exc:
@@ -182,9 +200,18 @@ class BaseFile:
                 ignored: set[str] = set()
                 if use_git and children:
                     result = subprocess.run(
-                        [git, "-C", str(root), "check-ignore", "--no-index", "-z", "--stdin"],
+                        [
+                            git,
+                            "-C",
+                            str(root),
+                            "check-ignore",
+                            "--no-index",
+                            "-z",
+                            "--stdin"
+                        ],
                         input="".join(f"{child.as_posix()}\0" for child in children).encode("utf-8"),
-                        capture_output=True, timeout=10,
+                        capture_output=True,
+                        timeout=10
                     )
                     if result.returncode not in (0, 1):
                         raise ToolExecutionError("Cannot evaluate Git ignore rules.")
@@ -199,7 +226,10 @@ class BaseFile:
                         subdirectories.append(child)
                 pending.extend(reversed(subdirectories))
             except (OSError, subprocess.TimeoutExpired) as exc:
-                skipped.append({"path": self.display(directory), "reason": type(exc).__name__})
+                skipped.append({
+                    "path": self.display(directory),
+                    "reason": type(exc).__name__
+                })
 
     @staticmethod
     def kind(path: Path) -> str:

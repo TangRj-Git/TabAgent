@@ -23,7 +23,11 @@ PARAMETERS = parameters_schema({
 
 
 def create_list_directory(base: BaseFile) -> Callable[..., str]:
-    def list_directory(path: str = ".", limit: int = 100, cursor: str | None = None) -> str:
+    def list_directory(
+            path: str = ".",
+            limit: int = 100,
+            cursor: str | None = None
+    ) -> str:
         """List immediate directory entries, including hidden entries. Does not recurse.
 
         Relative paths use the fixed workspace. Pagination is not a snapshot;
@@ -32,7 +36,11 @@ def create_list_directory(base: BaseFile) -> Callable[..., str]:
         target = base.directory(path)
         try:
             entries = (
-                {"name": child.name, "path": base.display(child), "kind": base.kind(child)}
+                {
+                    "name": child.name,
+                    "path": base.display(child),
+                    "kind": base.kind(child)
+                }
                 for child in sorted(target.iterdir(), key=lambda item: item.name)
             )
             result = page(entries, limit, cursor)

@@ -6,10 +6,21 @@ from tabagent.core.exceptions import ToolArgumentsError, ToolExecutionError
 from tabagent.tool.tools.file.base_file import BaseFile, parameters_schema
 
 PARAMETERS = parameters_schema({
-    "path": {"type": "string"},
-    "content": {"type": "string", "description": "Complete UTF-8 text to write."},
-    "overwrite": {"type": "boolean", "description": "Allow replacing an existing file; normally false."},
-    "expected_version": {"type": ["string", "null"], "description": "Version returned by read_file, or null."},
+    "path": {
+        "type": "string"
+    },
+    "content": {
+        "type": "string",
+        "description": "Complete UTF-8 text to write."
+    },
+    "overwrite": {
+        "type": "boolean",
+        "description": "Allow replacing an existing file; normally false."
+    },
+    "expected_version": {
+        "type": ["string", "null"],
+        "description": "Version returned by read_file, or null."
+    },
 })
 
 
@@ -18,7 +29,7 @@ def create_write_file(base: BaseFile) -> Callable[..., str]:
             path: str,
             content: str,
             overwrite: bool = False,
-            expected_version: str | None = None,
+            expected_version: str | None = None
     ) -> str:
         """Create a UTF-8 text file, including missing parent directories.
 
@@ -48,8 +59,10 @@ def create_write_file(base: BaseFile) -> Callable[..., str]:
             except OSError as exc:
                 raise ToolExecutionError(f"Cannot write file: {path!r}.") from exc
         return json.dumps({
-            "path": base.display(target), "created": not exists,
-            "bytes_written": len(raw), "version": hashlib.sha256(raw).hexdigest(),
+            "path": base.display(target),
+            "created": not exists,
+            "bytes_written": len(raw),
+            "version": hashlib.sha256(raw).hexdigest()
         }, ensure_ascii=False)
 
     return write_file

@@ -8,15 +8,27 @@ from tabagent.core.exceptions import ToolArgumentsError, ToolExecutionError
 from tabagent.tool.tools.file.base_file import BaseFile, parameters_schema
 
 PARAMETERS = parameters_schema({
-    "path": {"type": "string"},
-    "edits": {
-        "type": "array", "minItems": 1, "maxItems": 100,
-        "items": parameters_schema({
-            "old_text": {"type": "string", "description": "Non-empty exact text occurring once in the original file."},
-            "new_text": {"type": "string"},
-        }),
+    "path": {
+        "type": "string"
     },
-    "expected_version": {"type": ["string", "null"], "description": "Version returned by read_file, or null."},
+    "edits": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 100,
+        "items": parameters_schema({
+            "old_text": {
+                "type": "string",
+                "description": "Non-empty exact text occurring once in the original file."
+            },
+            "new_text": {
+                "type": "string"
+            },
+        })
+    },
+    "expected_version": {
+        "type": ["string", "null"],
+        "description": "Version returned by read_file, or null."
+    },
 })
 
 
@@ -24,7 +36,7 @@ def create_edit_file(base: BaseFile) -> Callable[..., str]:
     def edit_file(
             path: str,
             edits: list[dict[str, Any]],
-            expected_version: str | None = None,
+            expected_version: str | None = None
     ) -> str:
         """Apply unique, non-overlapping exact text replacements to a UTF-8 file.
 
@@ -52,7 +64,11 @@ def create_edit_file(base: BaseFile) -> Callable[..., str]:
                     raise ToolExecutionError("old_text was not found in the original file.")
                 if content.find(old, start + 1) >= 0:
                     raise ToolExecutionError("old_text is ambiguous. Include more surrounding text.")
-                replacements.append((start, start + len(old), new))
+                replacements.append((
+                    start,
+                    start + len(old),
+                    new
+                ))
             replacements.sort(key=lambda item: item[0])
             for left, right in zip(replacements, replacements[1:]):
                 if left[1] > right[0]:
@@ -65,13 +81,18 @@ def create_edit_file(base: BaseFile) -> Callable[..., str]:
             base.check_version(target, version)
             base.replace(target, raw)
         diff = "\n".join(difflib.unified_diff(
-            content.splitlines(), updated.splitlines(),
-            fromfile=base.display(target), tofile=base.display(target), lineterm="",
+            content.splitlines(),
+            updated.splitlines(),
+            fromfile=base.display(target),
+            tofile=base.display(target),
+            lineterm=""
         ))
         return json.dumps({
-            "path": base.display(target), "applied_edits": len(edits),
-            "diff": diff[:8000], "diff_truncated": len(diff) > 8000,
-            "version": hashlib.sha256(raw).hexdigest(),
+            "path": base.display(target),
+            "applied_edits": len(edits),
+            "diff": diff[:8000],
+            "diff_truncated": len(diff) > 8000,
+            "version": hashlib.sha256(raw).hexdigest()
         }, ensure_ascii=False)
 
     return edit_file

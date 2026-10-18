@@ -7,14 +7,39 @@ from tabagent.core.exceptions import ToolArgumentsError, ToolError
 from tabagent.tool.tools.file.base_file import BaseFile, page, parameters_schema
 
 PARAMETERS = parameters_schema({
-    "query": {"type": "string", "description": "Literal text or a Python regular expression."},
-    "path": {"type": "string", "description": "File or directory to search; normally '.'."},
-    "glob": {"type": ["string", "null"], "description": "Optional case-sensitive file glob, e.g. '*.py'."},
-    "regex": {"type": "boolean", "description": "Treat query as a regular expression; normally false."},
-    "case_sensitive": {"type": "boolean", "description": "Normally true."},
-    "context_lines": {"type": "integer", "minimum": 0, "maximum": 5},
-    "limit": {"type": "integer", "minimum": 1, "maximum": 1000},
-    "cursor": {"type": ["string", "null"]},
+    "query": {
+        "type": "string",
+        "description": "Literal text or a Python regular expression."
+    },
+    "path": {
+        "type": "string",
+        "description": "File or directory to search; normally '.'."
+    },
+    "glob": {
+        "type": ["string", "null"],
+        "description": "Optional case-sensitive file glob, e.g. '*.py'."
+    },
+    "regex": {
+        "type": "boolean",
+        "description": "Treat query as a regular expression; normally false."
+    },
+    "case_sensitive": {
+        "type": "boolean",
+        "description": "Normally true."
+    },
+    "context_lines": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 5
+    },
+    "limit": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 1000
+    },
+    "cursor": {
+        "type": ["string", "null"]
+    },
 })
 
 
@@ -27,7 +52,7 @@ def create_search_text(base: BaseFile) -> Callable[..., str]:
             case_sensitive: bool = True,
             context_lines: int = 2,
             limit: int = 50,
-            cursor: str | None = None,
+            cursor: str | None = None
     ) -> str:
         """Search UTF-8 text line by line, returning matching lines and context.
 
@@ -46,7 +71,10 @@ def create_search_text(base: BaseFile) -> Callable[..., str]:
         if glob is not None and (not isinstance(glob, str) or not glob):
             raise ToolArgumentsError("glob must be null or a non-empty string.")
         try:
-            pattern = re.compile(query if regex else re.escape(query), 0 if case_sensitive else re.IGNORECASE)
+            pattern = re.compile(
+                query if regex else re.escape(query),
+                0 if case_sensitive else re.IGNORECASE
+            )
         except re.error as exc:
             raise ToolArgumentsError("query contains an invalid regular expression.") from exc
         target = base.resolve(path)
@@ -66,7 +94,10 @@ def create_search_text(base: BaseFile) -> Callable[..., str]:
                 try:
                     content, _, _ = base.read(child)
                 except ToolError as exc:
-                    skipped.append({"path": base.display(child), "reason": str(exc)})
+                    skipped.append({
+                        "path": base.display(child),
+                        "reason": str(exc)
+                    })
                     continue
                 lines = content.splitlines()
                 for index, line in enumerate(lines):
@@ -75,11 +106,21 @@ def create_search_text(base: BaseFile) -> Callable[..., str]:
                     before = lines[max(0, index - context_lines):index]
                     after = lines[index + 1:index + 1 + context_lines]
                     yield {
-                        "path": base.display(child), "line": index + 1,
+                        "path": base.display(child),
+                        "line": index + 1,
                         "text": line[:2000],
-                        "before": [value[:2000] for value in before],
-                        "after": [value[:2000] for value in after],
-                        "text_truncated": any(len(value) > 2000 for value in [*before, line, *after]),
+                        "before": [
+                            value[:2000]
+                            for value in before
+                        ],
+                        "after": [
+                            value[:2000]
+                            for value in after
+                        ],
+                        "text_truncated": any(
+                            len(value) > 2000
+                            for value in [*before, line, *after]
+                        )
                     }
 
         result = page(matches(), limit, cursor)

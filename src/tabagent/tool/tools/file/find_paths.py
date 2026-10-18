@@ -6,12 +6,34 @@ from tabagent.core.exceptions import ToolArgumentsError
 from tabagent.tool.tools.file.base_file import BaseFile, page, parameters_schema
 
 PARAMETERS = parameters_schema({
-    "pattern": {"type": "string", "description": "Case-sensitive glob matched against names or relative paths, e.g. '*.py'."},
-    "path": {"type": "string", "description": "Search root; normally '.'."},
-    "kind": {"type": "string", "enum": ["file", "directory", "any"]},
-    "respect_ignore": {"type": "boolean", "description": "Apply repository Git ignore rules when Git is available; normally true."},
-    "limit": {"type": "integer", "minimum": 1, "maximum": 1000},
-    "cursor": {"type": ["string", "null"]},
+    "pattern": {
+        "type": "string",
+        "description": "Case-sensitive glob matched against names or relative paths, e.g. '*.py'."
+    },
+    "path": {
+        "type": "string",
+        "description": "Search root; normally '.'."
+    },
+    "kind": {
+        "type": "string",
+        "enum": [
+            "file",
+            "directory",
+            "any"
+        ]
+    },
+    "respect_ignore": {
+        "type": "boolean",
+        "description": "Apply repository Git ignore rules when Git is available; normally true."
+    },
+    "limit": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 1000
+    },
+    "cursor": {
+        "type": ["string", "null"]
+    },
 })
 
 
@@ -22,7 +44,7 @@ def create_find_paths(base: BaseFile) -> Callable[..., str]:
             kind: str = "any",
             respect_ignore: bool = True,
             limit: int = 100,
-            cursor: str | None = None,
+            cursor: str | None = None
     ) -> str:
         """Recursively find files or directories by a case-sensitive glob.
 
@@ -43,7 +65,10 @@ def create_find_paths(base: BaseFile) -> Callable[..., str]:
             for child, entry_kind in base.walk(root, respect_ignore, skipped):
                 name = child.relative_to(root).as_posix() if "/" in pattern else child.name
                 if (kind == "any" or kind == entry_kind) and fnmatch.fnmatchcase(name, pattern):
-                    yield {"path": base.display(child), "kind": entry_kind}
+                    yield {
+                        "path": base.display(child),
+                        "kind": entry_kind
+                    }
 
         result = page(matches(), limit, cursor)
         result["matches"] = result.pop("items")
