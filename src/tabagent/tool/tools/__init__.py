@@ -13,6 +13,7 @@ from tabagent.tool.tools.file import (
     FILE_TOOL_PARAMETERS,
     create_file_tools,
 )
+from tabagent.tool.tools.shell import create_shell_tools
 
 # 每个工具由“可执行函数”和“参数定义”组成。
 ToolDefinition: TypeAlias = tuple[
@@ -27,7 +28,7 @@ def create_tools(
     """
     创建默认工具列表。
 
-    文件工具绑定指定的默认工作目录。
+    文件和 Shell 工具绑定指定的默认工作目录。
     此处只组织工具，实际注册由调用方完成。
     """
 
@@ -46,6 +47,9 @@ def create_tools(
             tool,
             deepcopy(FILE_TOOL_PARAMETERS[name])
         ))
+
+    # 只汇总当前系统对应的 Shell 工具。
+    tools.extend(create_shell_tools(workspace))
 
     return tools
 
