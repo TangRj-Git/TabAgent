@@ -42,14 +42,14 @@ def create_tools(
     # 创建文件工具，并与各自的参数定义配对。
     file_tools = create_file_tools(workspace)
 
+    # 只汇总当前系统对应的 Shell 工具。
+    tools.extend(create_shell_tools(workspace))
+
     for name, tool in file_tools.items():
         tools.append((
             tool,
             deepcopy(FILE_TOOL_PARAMETERS[name])
         ))
-
-    # 只汇总当前系统对应的 Shell 工具。
-    tools.extend(create_shell_tools(workspace))
 
     return tools
 
