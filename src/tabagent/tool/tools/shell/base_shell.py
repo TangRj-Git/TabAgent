@@ -1,23 +1,18 @@
-"""Shell 工具共用的目录、进程执行、输出收集和超时处理。"""
+"""Shell 工具共用的目录、解释器配置和托管进程执行。"""
 
 import asyncio
 import json
-import math
 import os
 import platform
 import shutil
-import signal
-import subprocess
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any, TypeAlias
 
 from tabagent.core.exceptions import ToolArgumentsError, ToolExecutionError
+from tabagent.tool.tools.process import ProcessManager
 
 ShellTool: TypeAlias = Callable[..., Awaitable[str]]
-
-_STREAM_BYTES = 25 * 1024
-_STREAM_LINES = 1000
 
 
 def _environment() -> dict[str, str]:
@@ -28,70 +23,13 @@ def _environment() -> dict[str, str]:
     return environment
 
 
-class _OutputTail:
-    """持续消费输出，仅保留尾部，避免大量输出堵塞管道或占满内存。"""
-
-    def __init__(self) -> None:
-        self.data = bytearray()
-        self.total_bytes = 0
-
-    async def read(self, stream: asyncio.StreamReader) -> None:
-        while chunk := await stream.read(8192):
-            self.total_bytes += len(chunk)
-            self.data.extend(chunk)
-            if len(self.data) > _STREAM_BYTES:
-                del self.data[:-_STREAM_BYTES]
-
-    def result(self) -> tuple[str, bool]:
-        text = self.data.decode("utf-8", errors="replace")
-        lines = text.splitlines(keepends=True)
-        truncated = (
-                self.total_bytes > len(self.data)
-                or len(lines) > _STREAM_LINES
-        )
-        return "".join(lines[-_STREAM_LINES:]), truncated
-
-
-async def _terminate(process: asyncio.subprocess.Process) -> None:
-    """尝试停止本次启动的进程树，不支持脱离进程组的后台任务。"""
-    if os.name == "nt":
-        if process.returncode is None:
-            taskkill = shutil.which("taskkill")
-            if taskkill:
-                try:
-                    killer = await asyncio.create_subprocess_exec(
-                        taskkill,
-                        "/PID",
-                        str(process.pid),
-                        "/T",
-                        "/F",
-                        stdout=asyncio.subprocess.DEVNULL,
-                        stderr=asyncio.subprocess.DEVNULL,
-                        creationflags=subprocess.CREATE_NO_WINDOW,
-                    )
-                    try:
-                        await asyncio.wait_for(killer.wait(), 5)
-                    except asyncio.TimeoutError:
-                        killer.kill()
-                        await killer.wait()
-                except OSError:
-                    pass
-    else:
-        # Shell 已退出时，同组子进程仍可能持有 stdout/stderr 管道。
-        try:
-            os.killpg(process.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
-
-    if process.returncode is None:
-        try:
-            process.kill()
-        except ProcessLookupError:
-            pass
-
-
 class BaseShell:
-    """绑定默认目录和实际解释器，每次调用启动独立的非交互进程。"""
+    """
+    绑定默认目录和解释器，由 ProcessManager 执行非交互进程。
+
+    共享管理器由调用方创建和关闭，不能在每次 run() 后关闭。
+    未传入共享管理器时，使用临时管理器并等待执行结束，兼容现有工具工厂。
+    """
 
     def __init__(
             self,
@@ -101,10 +39,11 @@ class BaseShell:
             executable_names: tuple[str, ...],
             version_arguments: list[str],
             build_arguments: Callable[[str], list[str]],
+            process_manager: ProcessManager | None = None,
     ) -> None:
         try:
             self.workspace = Path(workspace).expanduser().resolve()
-        except (OSError, RuntimeError, ValueError) as exc:
+        except (TypeError, OSError, RuntimeError, ValueError) as exc:
             raise ToolArgumentsError("workspace could not be resolved.") from exc
 
         if not self.workspace.is_dir():
@@ -114,6 +53,7 @@ class BaseShell:
         self._build_arguments = build_arguments
         self._version_arguments = list(version_arguments)
         self._version_lock = asyncio.Lock()
+        self._process_manager = process_manager
         self.version: str | None = None
 
         for executable_name in executable_names:
@@ -128,7 +68,7 @@ class BaseShell:
             )
 
     async def _ensure_version(self) -> None:
-        """首次执行时异步查询版本；并发调用共用缓存，注册时不启动进程。"""
+        """首次异步查询版本；临时管理器避免把内部查询混入用户任务列表。"""
         if self.version is not None:
             return
 
@@ -136,14 +76,17 @@ class BaseShell:
             if self.version is not None:
                 return
 
-            result = await self._run_process(
+            result = await self._run_to_completion(
                 self._version_arguments,
                 self.workspace,
                 timeout=5.0,
+                wait_time=5.0,
             )
             if (
-                    result["timed_out"]
+                    result["status"] != "completed"
                     or result["exit_code"] != 0
+                    or result["error"] is not None
+                    or not result["output_complete"]
                     or not result["stdout"].strip()
             ):
                 raise ToolExecutionError(
@@ -152,46 +95,62 @@ class BaseShell:
             self.version = result["stdout"].strip().splitlines()[0]
 
     def description(self) -> str:
-        """生成当前解释器的实际运行环境说明，供注册工具时使用。"""
+        """说明实际执行方式、工作目录、返回字段和后续查询方式。"""
+        if self._process_manager is not None:
+            execution = (
+                "After startup, wait up to wait_time seconds for completion "
+                "(0 to 30; normally 2). Reaching wait_time does not stop the job.\n"
+                "Returns job_id, status, exit_code, stdout, stderr, next_cursor, "
+                "timed_out, output_complete, error, stdout_truncated, "
+                "stderr_truncated, and shell_version.\n"
+                "Use process_read with job_id and next_cursor for new output, "
+                "process_list to find jobs, and process_stop to stop a job. "
+                "A running status does not establish application readiness.\n"
+                "After a running job is returned, it continues until it exits, "
+                "reaches timeout, is stopped, or its manager is closed.\n"
+                "Set timeout to null for no runtime deadline.\n"
+            )
+        else:
+            execution = (
+                "Wait for the final result.\n"
+                "Returns status, exit_code, stdout, stderr, timed_out, "
+                "output_complete, error, stdout_truncated, stderr_truncated, "
+                "and shell_version. No reusable job_id or cursor is returned.\n"
+            )
         return (
-            f"Run non-interactive {self.name} commands on {platform.system()} "
-            "and wait for the final result.\n"
+            f"Run non-interactive {self.name} commands on {platform.system()}.\n"
             f"Shell executable: {self.executable}. Use {self.name} syntax.\n"
+            f"{execution}"
+            "timeout limits total process runtime in seconds; normally 120.\n"
             "The shell version is detected once on first use and returned "
-            "as shell_version.\n"
+            "as shell_version; this initial check adds startup time.\n"
             f"Default workspace: {self.workspace}. Relative cwd paths use "
             "this directory; absolute paths do not change the default.\n"
             "Each call starts a new process. Directory and environment changes "
-            "do not persist between calls. Interactive input and detached "
-            "background jobs are not supported.\n"
-            "Returns JSON containing exit_code, stdout, stderr, timed_out, "
-            "stdout_truncated, stderr_truncated, and shell_version. "
-            "Each output stream retains "
-            "at most its last 25 KiB / 1,000 lines. Output is decoded as UTF-8 "
-            "with replacement for invalid bytes.\n"
-            "Timeout or cancellation attempts to stop the process tree. "
-            "Commands run with the host process permissions; the workspace "
-            "is a path base, not a filesystem sandbox."
+            "do not persist between calls. Interactive input is not supported.\n"
+            "Keep long-running programs attached to the shell command. "
+            "Detached descendants and descendants whose root has already exited "
+            "are not guaranteed to be tracked or stopped.\n"
+            "Output is decoded as UTF-8 with replacement for invalid bytes. "
+            "Only a bounded tail of each stream is retained, measured in "
+            "Unicode characters; check the truncation flags for lost output.\n"
+            "Timeout or cancellation while this call is waiting attempts to "
+            "stop the process tree. Commands run with the host process "
+            "permissions; the workspace is a path base, not a filesystem sandbox."
         )
 
     async def run(
             self,
             command: str,
             cwd: str = ".",
-            timeout: float = 120.0,
+            timeout: float | None = 120.0,
+            *,
+            wait_time: float = 2.0,
     ) -> str:
+        """执行命令；共享管理器模式下可以在进程结束前返回任务标识。"""
         if not isinstance(command, str) or not command.strip() or "\0" in command:
             raise ToolArgumentsError(
                 "command must be non-empty text without null bytes."
-            )
-        if (
-                isinstance(timeout, bool)
-                or not isinstance(timeout, (int, float))
-                or not math.isfinite(timeout)
-                or timeout <= 0
-        ):
-            raise ToolArgumentsError(
-                "timeout must be a positive finite number of seconds."
             )
         if not isinstance(cwd, str) or not cwd or "\0" in cwd:
             raise ToolArgumentsError(
@@ -212,70 +171,64 @@ class BaseShell:
             )
 
         await self._ensure_version()
-        result = await self._run_process(
-            self._build_arguments(command),
-            directory,
-            timeout,
-        )
-        result["shell_version"] = self.version
-        return json.dumps(result, ensure_ascii=False)
+        arguments = self._build_arguments(command)
 
-    async def _run_process(
+        # 等待时间、运行时限和输出缓冲统一交给 ProcessManager 校验和管理。
+        if self._process_manager is not None:
+            result = await self._process_manager.start(
+                [self.executable, *arguments],
+                cwd=directory,
+                command=command,
+                wait_time=wait_time,
+                timeout=timeout,
+                env=_environment(),
+            )
+        else:
+            result = await self._run_to_completion(
+                arguments,
+                directory,
+                timeout,
+                wait_time=wait_time,
+                command=command,
+            )
+            # 临时管理器已经关闭，避免返回无法继续查询的标识。
+            result.pop("job_id")
+            result.pop("next_cursor")
+
+        result["shell_version"] = self.version
+        return json.dumps(result, ensure_ascii=False, allow_nan=False)
+
+    async def _run_to_completion(
             self,
             arguments: list[str],
             directory: Path,
-            timeout: float,
+            timeout: float | None,
+            *,
+            wait_time: float = 2.0,
+            command: str | None = None,
     ) -> dict[str, Any]:
-        """版本查询和命令执行共用输出限制、超时及取消清理逻辑。"""
-        platform_options = (
-            {"creationflags": subprocess.CREATE_NO_WINDOW}
-            if os.name == "nt"
-            else {"start_new_session": True}
-        )
-        try:
-            process = await asyncio.create_subprocess_exec(
-                self.executable,
-                *arguments,
+        """版本查询和兼容调用使用临时管理器，结束或取消时释放其资源。"""
+        async with ProcessManager(max_running=1, max_finished=1) as manager:
+            result = await manager.start(
+                [self.executable, *arguments],
                 cwd=directory,
+                command=command,
+                wait_time=wait_time,
+                timeout=timeout,
                 env=_environment(),
-                stdin=asyncio.subprocess.DEVNULL,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                **platform_options,
             )
-        except OSError as exc:
-            raise ToolExecutionError(
-                f"The {self.name} process could not be started."
-            ) from exc
+            job_id = result["job_id"]
+            while result["exit_code"] is None:
+                if result["error"] is not None:
+                    raise ToolExecutionError(
+                        f"The {self.name} process could not be completed: "
+                        f"{result['error']}"
+                    )
+                result = await manager.read(
+                    job_id,
+                    cursor=result["next_cursor"],
+                    wait_time=30.0,
+                )
 
-        stdout = _OutputTail()
-        stderr = _OutputTail()
-        completed = asyncio.gather(
-            process.wait(),
-            stdout.read(process.stdout),
-            stderr.read(process.stderr),
-        )
-        timed_out = False
-        try:
-            await asyncio.wait_for(asyncio.shield(completed), timeout)
-        except asyncio.TimeoutError:
-            timed_out = True
-        finally:
-            if not completed.done() or process.returncode is None:
-                await _terminate(process)
-                try:
-                    await asyncio.wait_for(asyncio.shield(completed), 3)
-                except asyncio.TimeoutError:
-                    completed.cancel()
-                    await asyncio.gather(completed, return_exceptions=True)
-
-        output, output_truncated = stdout.result()
-        error, error_truncated = stderr.result()
-        return {
-            "exit_code": process.returncode,
-            "stdout": output,
-            "stderr": error,
-            "timed_out": timed_out,
-            "stdout_truncated": output_truncated,
-            "stderr_truncated": error_truncated,
-        }
+        # aclose() 等待输出管道回收后，再读取完整的保留输出。
+        return await manager.read(job_id)

@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from tabagent.core.exceptions import ToolRegistrationError
+from tabagent.tool.tools.process import ProcessManager
 from tabagent.tool.tools.shell.base_shell import ShellTool
 from tabagent.tool.tools.shell.bash_tool import (
     PARAMETERS as BASH_PARAMETERS,
@@ -27,14 +28,18 @@ SHELL_TOOL_PARAMETERS = {
 }
 
 
-def create_shell_tool(workspace: str | Path) -> ShellTool:
-    """只创建当前系统对应的工具；固定解释器，版本在首次执行时异步查询。"""
+def create_shell_tool(
+        workspace: str | Path,
+        *,
+        process_manager: ProcessManager | None = None,
+) -> ShellTool:
+    """只创建当前系统对应的工具，并传递调用方持有的共享管理器。"""
     if sys.platform == "win32":
-        return create_powershell_tool(workspace)
+        return create_powershell_tool(workspace, process_manager=process_manager)
     if sys.platform == "linux":
-        return create_bash_tool(workspace)
+        return create_bash_tool(workspace, process_manager=process_manager)
     if sys.platform == "darwin":
-        return create_zsh_tool(workspace)
+        return create_zsh_tool(workspace, process_manager=process_manager)
 
     raise ToolRegistrationError(
         f"Shell tools are not supported on platform {sys.platform!r}."
@@ -43,9 +48,11 @@ def create_shell_tool(workspace: str | Path) -> ShellTool:
 
 def create_shell_tools(
         workspace: str | Path,
+        *,
+        process_manager: ProcessManager | None = None,
 ) -> list[tuple[ShellTool, dict[str, Any]]]:
-    """返回一个工具及其参数定义，供上层 create_tools() 统一汇总。"""
-    tool = create_shell_tool(workspace)
+    """返回当前系统的工具及参数定义；管理器的创建和关闭由调用方负责。"""
+    tool = create_shell_tool(workspace, process_manager=process_manager)
     return [
         (
             tool,

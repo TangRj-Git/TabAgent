@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+from tabagent.tool.tools.process import ProcessManager
 from tabagent.tool.tools.shell.base_shell import BaseShell, ShellTool
 
 PARAMETERS = {
@@ -16,15 +17,22 @@ PARAMETERS = {
             "description": "Working directory; use '.' for the fixed workspace.",
         },
         "timeout": {
-            "type": "number",
+            "type": ["number", "null"],
             "exclusiveMinimum": 0,
-            "description": "Execution timeout in seconds; normally 120.",
+            "description": "Total runtime limit in seconds; normally 120, or null for no runtime deadline.",
+        },
+        "wait_time": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 30,
+            "description": "Seconds to wait before returning a managed job; normally 2. Enables early return only when background execution is configured.",
         },
     },
     "required": [
         "command",
         "cwd",
         "timeout",
+        "wait_time",
     ],
     "additionalProperties": False,
 }
@@ -39,21 +47,34 @@ def _build_arguments(command: str) -> list[str]:
     ]
 
 
-def create_zsh_tool(workspace: str | Path) -> ShellTool:
+def create_zsh_tool(
+        workspace: str | Path,
+        *,
+        process_manager: ProcessManager | None = None,
+) -> ShellTool:
+    """创建 Zsh 工具；共享管理器由调用方持有和关闭。"""
     base = BaseShell(
         workspace,
         name="Zsh",
         executable_names=("zsh",),
         version_arguments=["--version"],
         build_arguments=_build_arguments,
+        process_manager=process_manager,
     )
 
     async def zsh(
             command: str,
             cwd: str = ".",
-            timeout: float = 120.0,
+            timeout: float | None = 120.0,
+            *,
+            wait_time: float = 2.0,
     ) -> str:
-        return await base.run(command, cwd, timeout)
+        return await base.run(
+            command=command,
+            cwd=cwd,
+            timeout=timeout,
+            wait_time=wait_time,
+        )
 
     zsh.__doc__ = (
             base.description()
