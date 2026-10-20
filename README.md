@@ -1,106 +1,98 @@
 # TabAgent
 
-TabAgent 是一个逐步构建中的 Python Agent harness，通过异步流式模型调用、函数工具和对话历史管理，完成多轮任务执行。中间件已接入 App 初始化、Agent 运行、单次模型调用和单次工具执行，可以在对应过程前后检查参数、调整配置和处理结果。
+**An asynchronous Python agent harness built around middleware.**
 
-## 当前功能
+**English** · [简体中文](README.zh-CN.md)
 
-| 模块 | 已有能力 |
-| --- | --- |
-| `TabAgentApp` | 统一接收配置，经过初始化中间件创建 LLM 和 Agent，并管理客户端的关闭 |
-| `TabAgentLLM` | 统一 LLM 入口，根据 `provider` 选择底层实现，转发流式调用、模型列表查询和关闭操作 |
-| `BaseLLM` / `OpenAILLM` | 定义底层接口；当前由 `OpenAILLM` 调用 OpenAI Responses API |
-| `TabAgent` | 输出文本增量，执行模型请求的函数工具，并继续请求模型直到得到最终回答 |
-| `BaseMiddleware` / `MiddlewareManager` | 定义四类包装入口，按注册顺序组装中间件调用链 |
-| `LoggingMiddleware` | 记录初始化、Agent、模型和工具执行的状态与耗时 |
-| `Message` | 组织用户消息、系统消息、模型输出项和工具执行结果 |
-| `ToolRegistry` | 注册、查询、删除 Python 函数，生成提供给模型的函数定义 |
-| 工具执行器 | 执行同步或异步工具，处理参数解析和结果序列化 |
-| 自定义异常 | 区分配置、模型响应、调用次数上限和工具相关错误 |
-| 日志 | 使用 Loguru，统一配置控制台和文件输出 |
+TabAgent combines streamed model responses, Python tools, conversation history, and resource management. Middleware surrounds application initialization, Agent runs, model calls, and tool execution so that you can prepare inputs, adjust behavior, inspect results, and clean up resources at each boundary.
 
-`AgentLifecycle` 保留了六个生命周期钩子的定义，当前尚未接入执行流程。`middleware/` 中的上下文、记忆、MCP、技能、模型和工具中间件文件仍是占位文件；已经实现并接入的是中间件基类、管理器和可选的日志中间件。
+The project is under active development. The current entry point is the Python API; the `tabagent` command still prints a placeholder greeting.
 
-## 安装
+[Quick start](#quick-start) · [Architecture](#architecture) · [Middleware](#middleware) · [Tools](#tools) · [MCP](#mcp-client) · [Development](#development) · [Current scope](#current-scope)
 
-需要 Python 3.12 或以上版本，以及 [uv](https://docs.astral.sh/uv/)。项目的 `.python-version` 当前指定 Python 3.12。
+## What you can build with it
 
-在项目根目录执行：
+- **Agents that use local tools.** Read and edit text files, search a project, evaluate expressions, and run commands.
+- **Custom execution flows.** Wrap initialization, an entire Agent run, an individual model request, or an individual tool call.
+- **Managed background commands.** Return a job ID while a command is running, then inspect its output or stop it through process tools.
+- **MCP client integrations.** Connect to multiple servers, discover their capabilities, and invoke their tools through a standalone client module.
+
+The model chooses among the tools exposed to it. The surrounding harness controls how requests are prepared, how tools execute, and how their results become the next model input.
+
+## Quick start
+
+### 1. Install
+
+Use Python **3.12+** and [uv](https://docs.astral.sh/uv/). From a local checkout:
 
 ```bash
 uv sync --locked
 ```
 
-该命令根据 `uv.lock` 安装依赖和当前项目，并准备 `.venv` 环境。
+This installs the project and its locked dependencies into `.venv`. The checkout's `.python-version` selects Python 3.12.
 
-## 模型连接配置
+The built-in Shell tool also requires the corresponding interpreter on `PATH`:
 
-示例入口使用 `python-dotenv` 加载项目根目录的 `.env`。需要配置以下三个变量，将占位值替换为自己的服务配置：
+| Operating system | Selected tool | Interpreter |
+| --- | --- | --- |
+| Windows | `powershell` | `pwsh` preferred; `powershell` as fallback |
+| Linux | `bash` | Bash |
+| macOS | `zsh` | Zsh |
+
+Only the current platform's Shell tool is registered.
+
+### 2. Configure a model
+
+Create a local `.env` with your endpoint, key, and model ID:
 
 ```dotenv
 OPENAI_BASE_URL=https://api.openai.com/v1
 OPENAI_API_KEY=your-api-key
-OPENAI_MODEL=your-model-name
+OPENAI_MODEL=your-model-id
 ```
 
-服务需要支持 Responses API 的流式响应；使用工具时还需要支持 function calling。`TabAgentApp` 和 `TabAgentLLM` 通过构造参数接收配置，本身不会自动读取 `.env`。
+The current adapter uses the **OpenAI Responses API**, including streaming and function calling. `provider="openai"` is the only implemented provider. A custom `base_url` must support that protocol; a Chat Completions-only endpoint is not sufficient.
 
-`provider` 当前只支持 `"openai"`，也是默认值。它用于选择本地的 LLM 实现；仅修改 `base_url` 不会转换请求协议，目标服务仍需支持 Responses API。
+The example below explicitly calls `load_dotenv()`. The library constructors receive configuration as arguments and do not load `.env` themselves.
 
-## 运行交互示例
+### 3. Run an Agent
 
-```bash
-uv run pytest -s test/test_agent.py::test_agent
-```
-
-该示例注册了 `add` 和 `multiply` 两个工具，保留多轮对话历史，并逐段打印模型回答。可以依次输入：
-
-```text
-先用工具算 12 乘 3，再用工具给结果加 8。
-再把刚才的结果乘 2。
-exit
-```
-
-`exit` 用于结束交互。`-s` 关闭 pytest 的输入输出捕获，使终端能够读取输入并展示流式输出；在 PyCharm 中也需要将 `-s` 加入 pytest 的附加参数。
-
-当前 `uv run tabagent` 对应的命令行入口仍只打印 `Hello from tabagent!`。交互运行请使用上面的示例入口。
-
-## 最小代码示例
-
-下面通过 `TabAgentApp` 统一创建和关闭内部资源，并启用日志中间件。代码可以保存为项目根目录下的 Python 脚本，通过 `uv run python <脚本文件名>.py` 运行：
+Save this as `example.py` in the repository root:
 
 ```python
 import asyncio
 import os
 from contextlib import aclosing
+from pathlib import Path
 
 from dotenv import load_dotenv
 
 from tabagent.core.app import TabAgentApp
 from tabagent.core.message import Message, UserMessage
 from tabagent.middleware.logging_middleware import LoggingMiddleware
-from tabagent.tool.registry import ToolRegistry
-
-
-def multiply(a: float, b: float) -> float:
-    """Multiply two numbers."""
-    return a * b
+from tabagent.middleware.tool_middleware import ToolMiddleware
 
 
 async def main() -> None:
     load_dotenv()
 
-    registry = ToolRegistry()
-    registry.register_tool(multiply)
-    messages: list[Message] = [UserMessage("请使用工具计算 12 乘 3。")]
+    messages: list[Message] = [
+        UserMessage("Read README.md and summarize this project in three sentences."),
+    ]
 
     async with TabAgentApp(
         base_url=os.environ["OPENAI_BASE_URL"],
         api_key=os.environ["OPENAI_API_KEY"],
-        provider="openai",
+        workspace=Path.cwd(),
         model=os.environ["OPENAI_MODEL"],
-        instructions="涉及算术时使用提供的工具，并用中文回答。",
-        tool_registry=registry,
-        middlewares=(LoggingMiddleware(),),
+        instructions=(
+            "Use the available tools when needed. "
+            "Follow the user's requested scope and report actual tool results."
+        ),
+        middlewares=(
+            LoggingMiddleware(),
+            ToolMiddleware(),
+        ),
     ) as app:
         async with aclosing(app.astream(messages=messages)) as stream:
             async for delta in stream:
@@ -112,138 +104,317 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
-`TabAgentApp.astream()` 转发 Agent 产生的文本片段。Agent 会向传入的 `messages` 列表追加模型输出和工具结果。继续对话时，在同一个 App 上下文中向该列表追加新的 `UserMessage`，再调用 `astream()` 即可，不需要重复保存模型输出。
+```bash
+uv run --locked python example.py
+```
 
-`async with TabAgentApp(...)` 负责初始化和关闭客户端，`aclosing()` 负责在正常结束、异常或提前停止迭代时关闭本次响应生成器。`astream()` 应使用 `async for` 读取，不能直接 `await`。
+`ToolMiddleware` registers the built-in tools. `TabAgentApp` owns the LLM client and the shared process manager, and closes them when the context exits. `LoggingMiddleware` enables execution logs.
 
-一次 Agent 执行默认最多请求模型 10 次，可通过 `max_model_calls` 调整。达到上限且模型仍请求调用工具时，会抛出 `ModelCallLimitError`，最后一轮待调用的工具不会执行。客户端的 `timeout` 默认是 `60.0` 秒，`max_retries` 默认是 `3`。
+`astream()` returns an asynchronous generator of text fragments. Consume it with `async for`; use `aclosing()` to release the stream if iteration stops early.
 
-也可以继续直接组合 `TabAgentLLM` 和 `TabAgent` 使用，参见 [test_agent.py](test/test_agent.py)。这种方式由调用方通过 `async with TabAgentLLM(...)` 管理客户端资源。
+### Continue a conversation
 
-## 中间件
-
-通过 `TabAgentApp(middlewares=...)` 注册中间件。自定义中间件继承 `BaseMiddleware`，按需重写下列方法，其余方法默认调用下一层，并原样向外传递结果。
-
-| 方法 | 包围的过程 | 请求中可调整的内容 | 下一层的调用方式 |
-| --- | --- | --- | --- |
-| `wrap_init` | 创建 LLM 和 Agent | 服务地址、密钥、provider、模型、工具注册表、超时和重试等初始化配置 | `await call_next(request)` |
-| `wrap_agent` | 一次完整 Agent 运行 | 消息、已初始化的 LLM、模型、指令、工具注册表和调用次数上限 | `async for` 读取文本片段 |
-| `wrap_model` | 单次模型调用 | 本轮消息、模型、指令和函数定义 | `async for` 读取模型事件 |
-| `wrap_tool` | 单次工具执行 | 工具名称和已解析的参数字典；`call_id` 应保持不变 | `await call_next(request)` 获取结果字符串 |
-
-注册顺序为 `(A, B)` 时，调用链为 `A(B(实际执行函数))`。如果每层都调用下一层并正常完成，顺序是：A 前置处理 → B 前置处理 → 实际执行 → B 后置处理 → A 后置处理。
-
-流式中间件中，循环内部的代码处理每个片段或事件，循环之后的代码在正常读完流后执行。需要在异常、取消或关闭时也执行的清理逻辑，应放在 `finally` 中，并使用 `aclosing(call_next(request))` 向下传递关闭操作。
-
-Agent 中间件拿到本次运行的工具注册表副本，可以动态注册或删除工具。模型中间件拿到消息和函数定义的深拷贝，临时修改不会直接改动原始历史或注册表。模型中间件只调整发送给模型的函数定义；添加可执行工具应通过 Agent 请求中的工具注册表完成。
-
-`LoggingMiddleware` 已实现上述四种包装，可像最小示例一样直接注册。App 默认的 `middlewares=()` 不启用任何中间件。
-
-## LLM 分层
-
-| 文件 | 职责 |
-| --- | --- |
-| `core/llm.py` | `TabAgentLLM` 对外提供稳定入口，校验 provider 并转发调用 |
-| `llm/base_llm.py` | `BaseLLM` 定义 `astream()`、`aclose()` 和异步上下文管理；`amodel()` 默认报告不支持模型列表查询 |
-| `llm/llm_adapter.py` | `create_llm_adapter()` 根据 provider 创建具体实现 |
-| `llm/openai_llm.py` | `OpenAILLM` 管理 OpenAI 客户端、发送 Responses 请求并返回原始流式事件 |
-
-新增底层实现时，需要实现 `BaseLLM` 的抽象接口，并在工厂中增加对应的 provider 选择逻辑。当前 Agent 和模型中间件仍按 Responses 事件结构处理输出；新的底层实现也需要适配这一约定。
-
-`TabAgentLLM.astream()` 返回原始模型事件；`TabAgentApp.astream()` 和 `TabAgent.astream()` 返回供调用方展示的文本片段。Agent 在流正常读完并获得成功完成事件后保存完整的模型输出，再执行函数调用并把结果加入下一轮历史。模型失败、不完整响应和缺少完成事件会通过相应异常报告给调用方。
-
-## 工具注册
-
-工具注册方法是同步方法，注册异步函数时也不需要 `await`。`ToolRegistry` 保存 Python 函数及其 `Function` 定义，模型只接收函数定义，实际执行由 Agent 负责。
-
-自动生成参数 Schema 目前采用简单类型映射。对于 `list`、`tuple`、`dict`、`list[int]`、联合类型或复杂嵌套结构，请通过 `register_tool(parameters=...)` 显式提供完整 Schema；当前自动映射不会补齐数组元素和嵌套对象的结构。默认 `strict=True` 时，自动生成的 Schema 会将全部参数列入 `required`，包括带 Python 默认值的参数。
-
-已有的 [calculate_tool.py](src/tabagent/tool/tools/calulate/calculate_tool.py) 提供 `calculate(expression: str)`，支持四则运算、乘方和常见数学函数，可以直接注册使用。`web_search_tool.py` 当前尚未实现。
-
-## 日志配置
-
-配置位于 [config.py](src/tabagent/core/config.py)，由 `log_config.console` 和 `log_config.file` 管理：
-
-| 配置 | 默认值 |
-| --- | --- |
-| 控制台输出 | 启用，`INFO` 及以上等级，彩色显示 |
-| 文件输出 | 启用，`DEBUG` 及以上等级，UTF-8 纯文本 |
-| 文件路径 | 源码运行时为项目根目录下的 `logs/tabagent.log` |
-| 文件轮转阈值 | `10 MB` |
-| 旧文件保留期限 | `7 days`，在轮转时检查清理 |
-| 队列写入 | 控制台和文件均启用 |
-
-其他模块直接导入使用：
+The Agent appends model output and tool results to the original `messages` list. Within the **same App context**, append another user message and stream again:
 
 ```python
-from tabagent.core.logger import logger
+messages.append(UserMessage("Which parts are still under development?"))
 
-logger.debug("Tool registered: {}.", "multiply")
-logger.info("Agent run started.")
+async with aclosing(app.astream(messages=messages)) as stream:
+    async for delta in stream:
+        print(delta, end="", flush=True)
+print()
 ```
 
-配置在首次导入日志模块时应用，修改配置后重新启动程序即可生效。日志调用本身不需要 `await`。需要等待队列完成写入时，同步入口调用 `logger.complete()`，异步入口可以使用 `await logger.complete()`。
+Application defaults:
 
-文件轮转会产生多个日志文件，目录总大小可以超过 10 MB。保留期限按旧文件清理，不是每条日志满七天就立即删除。
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `max_model_calls` | `10` | Maximum model requests per Agent run |
+| `timeout` | `60.0` | Passed to the model SDK as its request timeout |
+| `max_retries` | `3` | Model SDK retry setting |
+| `middlewares` | `()` | Middleware is enabled explicitly |
+| `workspace` | Required | Fixed default directory for local operations |
 
-## 本地检查与模型调用示例
+If the final permitted model call still requests tools, the Agent raises `ModelCallLimitError` without executing those pending calls.
 
-不调用模型的本地检查：
+## Architecture
+
+```mermaid
+flowchart TD
+    Init["Initialization middleware"] --> App["TabAgentApp"]
+    App --> AgentMiddleware["Agent middleware"]
+    AgentMiddleware --> Agent["TabAgent loop"]
+    Agent --> ModelMiddleware["Model middleware"]
+    ModelMiddleware --> LLM["TabAgentLLM / OpenAILLM"]
+    LLM -->|"Responses events"| Agent
+    Agent --> ToolMiddleware["Tool execution middleware"]
+    ToolMiddleware --> Tools["Registered Python tools"]
+    Tools -->|"Results added to history"| Agent
+    Agent -->|"Text fragments"| Caller["Caller"]
+```
+
+| Component | Responsibility |
+| --- | --- |
+| [`TabAgentApp`](src/tabagent/core/app.py) | Configuration, initialization, middleware composition, and owned-resource cleanup |
+| [`TabAgent`](src/tabagent/core/agent.py) | Model/tool loop, conversation history, streamed text, and model-call limits |
+| [`TabAgentLLM`](src/tabagent/core/llm.py) | Stable LLM entry point backed by the provider adapter factory |
+| [`OpenAILLM`](src/tabagent/llm/openai_llm.py) | OpenAI client lifecycle and raw Responses stream events |
+| [`MiddlewareManager`](src/tabagent/core/middleware.py) | Composition of the four middleware chains |
+| [`ToolRegistry`](src/tabagent/tool/registry.py) | Python callables and the function definitions exposed to the model |
+| [`ProcessManager`](src/tabagent/tool/tools/process/process_manager.py) | Local jobs, output buffers, runtime limits, and process cleanup |
+| [`MCPClientManager`](src/tabagent/mcp/manager.py) | Independent MCP connections, capability catalogs, and remote tool calls |
+
+`TabAgentLLM.astream()` yields raw model events. `TabAgent.astream()` and `TabAgentApp.astream()` yield displayable text. The Agent saves complete successful model output before executing requested tools and adding their results to the next request.
+
+Model failures, incomplete responses, and missing completion events raise dedicated exceptions. Tool errors handled by the executor are returned as JSON error results.
+
+## Middleware
+
+Inherit from [`BaseMiddleware`](src/tabagent/middleware/base_middleware.py) and override the boundaries you need:
+
+| Method | Request type | What it can control |
+| --- | --- | --- |
+| `wrap_init` | `AppInitRequest` | Configuration before LLM and Agent creation |
+| `wrap_agent` | `AgentRequest` | Messages, LLM reference, model, instructions, tool registry, and call limit for one run |
+| `wrap_model` | `ModelRequest` | Messages, model, instructions, and function definitions for one model request |
+| `wrap_tool` | `ToolRequest` | Tool name, parsed arguments, and the returned result string |
+
+For example, override instructions for a single run:
+
+```python
+from collections.abc import AsyncGenerator
+from contextlib import aclosing
+
+from tabagent.middleware.base_middleware import (
+    AgentHandler,
+    AgentRequest,
+    BaseMiddleware,
+)
+
+
+class RunInstructionsMiddleware(BaseMiddleware):
+    async def wrap_agent(
+        self,
+        call_next: AgentHandler,
+        request: AgentRequest,
+    ) -> AsyncGenerator[str, None]:
+        request.instructions = (
+            "Inspect relevant files before answering. "
+            "For inspection requests, leave files unchanged."
+        )
+        async with aclosing(call_next(request)) as stream:
+            async for delta in stream:
+                yield delta
+```
+
+Pass instances through `TabAgentApp(middlewares=(...))`. Registration order `(A, B)` produces `A(B(execution))`: enter A, enter B, execute, exit B, exit A. Put cleanup that must also run on cancellation or failure in `finally`.
+
+The Agent request receives a registry copy; model requests receive deep copies of messages and function definitions. Add executable tools through the Agent's registry. Adding a model-facing function definition alone does not register an executable function. Tool middleware must preserve `call_id`.
+
+Available middleware:
+
+- [`ToolMiddleware`](src/tabagent/middleware/tool_middleware.py) registers default local tools during initialization. Caller-provided tools with the same name take precedence.
+- [`LoggingMiddleware`](src/tabagent/middleware/logging_middleware.py) records initialization, Agent runs, model calls, tool execution, and elapsed time.
+- [`ModelMiddleware`](src/tabagent/middleware/model_middleware.py) validates model configuration and checks the requested model against the service's model list. It is optional and blocks initialization if that endpoint is unavailable or the model is absent. A successful list request does not prove generation will succeed.
+
+## Tools
+
+### Built-in tools
+
+`ToolMiddleware` uses [`create_tools()`](src/tabagent/tool/tools/__init__.py) to assemble:
+
+| Tool | Purpose |
+| --- | --- |
+| `calculate` | Evaluate supported arithmetic, constants, and math functions using a restricted AST evaluator |
+| `list_directory` | List immediate entries, including hidden entries, with pagination |
+| `find_paths` | Find files and directories by name or relative-path pattern |
+| `search_text` | Search UTF-8 text using literal text or regular expressions |
+| `read_file` | Read a text range and return continuation positions and a content version |
+| `write_file` | Create a text file or explicitly replace its full contents; create missing parents |
+| `edit_file` | Apply targeted text replacements, with an optional content-version check |
+| `powershell` / `bash` / `zsh` | Run non-interactive commands using the current platform's Shell |
+| `process_read` | Read a managed job's status and additional output |
+| `process_list` | List jobs owned by the shared manager |
+| `process_stop` | Request termination of a managed job |
+
+Text-file tools support UTF-8 files up to **8 MiB**. Follow returned cursors or line/column continuation positions; results may be paginated or truncated. Use `expected_version` from a previous read when editing to detect stale content. These checks do not lock out external writers.
+
+Search and path discovery can respect Git ignore rules when Git is installed and the target is in a repository. The current search implementation does not require `rg`. Dedicated file deletion, move, and copy tools are not part of the current built-in set.
+
+### Background commands
+
+With the shared process manager supplied by `TabAgentApp`, Shell execution can return before a command exits:
+
+| Parameter/result | Meaning |
+| --- | --- |
+| `wait_time` | How long the tool waits before returning; default `2` seconds, range `0–30` |
+| `timeout` | Total process runtime limit; default `120` seconds, `None`/JSON `null` disables this deadline |
+| `job_id` | Manager-owned job identifier, not an operating-system PID |
+| `next_cursor` | Position to pass back to `process_read` for additional output |
+
+Reaching `wait_time` leaves the job running. Reaching `timeout` attempts to terminate it; it does not pause it. The Agent can proceed with other tool calls while the returned job continues.
+
+Tool calls within an Agent response are still dispatched sequentially. Background jobs become independent after their launch call returns. Completion does not automatically resume or notify the model: query the process tools when results are needed.
+
+Each Shell call starts a fresh process; `cd` and environment changes do not persist between calls. Keep long-running programs attached to the command, since detached descendants are not guaranteed to be tracked or stopped. Output retention is bounded; inspect truncation indicators. App exit closes its process manager and attempts to stop remaining jobs.
+
+Using `create_tools()` without a shared `process_manager` makes Shell calls wait for completion and omits the process-management tools.
+
+### Register your own tools
+
+```python
+from tabagent.tool.registry import ToolRegistry
+
+
+def multiply(a: float, b: float) -> float:
+    """Multiply two numbers."""
+    return a * b
+
+
+registry = ToolRegistry()
+registry.register_tool(multiply)
+```
+
+Pass `tool_registry=registry` to `TabAgentApp`. Registration is synchronous, including for `async def` functions. During execution, the Agent awaits async tools and runs synchronous tools with `asyncio.to_thread()`.
+
+Automatic Schema generation supports a basic annotation-to-type mapping. Provide an explicit `parameters=...` JSON Schema for arrays, nested objects, unions, or other complex inputs. With the default `strict=True`, automatically generated schemas require every parameter, including those with Python defaults. Positional-only parameters, `*args`, and `**kwargs` are not supported by the current registry.
+
+Strings are returned to the model as-is. Other JSON-compatible values are serialized by the executor.
+
+### Workspace behavior
+
+`workspace` is resolved once as the default directory and must exist when using the built-in file and Shell tools. Relative file paths and Shell `cwd` use it; an explicit absolute path can target another location without changing the default.
+
+**The workspace is a path base, not a sandbox or an authorization boundary.** Local operations use the host process's permissions. Applications that need enforced path restrictions or approval policies must implement them explicitly.
+
+## MCP client
+
+The [MCP module](src/tabagent/mcp/) uses **FastMCP** and can be used independently of the Agent. One `MCPServerClient` owns one configured server connection; `MCPClientManager` aggregates them.
+
+- **Transports:** stdio, Streamable HTTP, and legacy SSE.
+- **Configuration:** an explicitly supplied JSON path, environment-variable expansion, per-server timeouts, and required/optional servers.
+- **Authentication:** custom headers, Bearer tokens, interactive OAuth, and client-credentials OAuth.
+- **Discovery:** separate tool, resource, prompt, and resource-template catalogs, including errors and stale-data markers.
+- **Execution:** explicit `(server_id, name)` routing and complete tool results. Resources and prompts are currently discovered, not read or rendered.
+- **Lifecycle:** bounded startup concurrency, independent metadata discovery, explicit reconnect, and tracked cleanup.
+
+Provide your server configuration in `resources/mcp_config.json`, for example:
+
+```json
+{
+  "mcpServers": {
+    "local-service": {
+      "command": "uvx",
+      "args": ["<your-mcp-server-package>"],
+      "cwd": ".."
+    }
+  }
+}
+```
+
+Replace the package placeholder with an actual MCP server. The command must be available on `PATH`. Relative `cwd` is resolved from the configuration file's directory.
+
+```python
+import asyncio
+
+from tabagent.mcp import MCPClientManager
+
+
+async def inspect_mcp() -> None:
+    async with MCPClientManager(
+        config_path="resources/mcp_config.json",
+    ) as manager:
+        await manager.wait_ready(include_metadata=True)
+
+        for server_id, info in manager.get_server_infos().items():
+            print(server_id, info.state, info.error)
+
+        for entry in manager.get_tools():
+            print(entry.server_id, entry.tool.name, entry.tool.input_schema)
+
+
+if __name__ == "__main__":
+    asyncio.run(inspect_mcp())
+```
+
+Invoke a discovered tool with `await manager.call_tool(server_id=..., name=..., arguments=...)`. The result preserves content blocks, structured content, and `is_error`. Tool calls are not automatically retried after a timeout or disconnection.
+
+By default, opening waits for tool discovery; `wait_ready(include_metadata=True)` also waits for the other catalogs. `connect(wait_for_optional=False)` allows optional services to start in the background. Cleanup timeouts remain visible through `cleanup_error` and `cleanup_pending`.
+
+**MCP is not yet wired into `TabAgentApp` or `ToolRegistry`.** The client module is implemented; the Agent adapter and MCP middleware are the next integration layer.
+
+See the [MCP guide](src/tabagent/mcp/README.md) for complete configuration, authentication, lifecycle behavior, and tests. Actual OAuth login needs validation against your chosen service.
+
+## Logging
+
+Logging uses [Loguru](https://github.com/Delgan/loguru). Settings live in [`core/config.py`](src/tabagent/core/config.py) under `log_config.console` and `log_config.file`.
+
+| Destination | Default configuration |
+| --- | --- |
+| Console | `INFO` and above, colored output |
+| File | `DEBUG` and above, UTF-8, `logs/tabagent.log` in a source checkout |
+| Rotation | `10 MB` per file |
+| Retention | `7 days`, checked when rotation runs |
+
+Both sinks use queued writes. Configuration is applied when [`core/logger.py`](src/tabagent/core/logger.py) is first imported. Other modules can import `logger` from there. Multiple rotated files can exceed 10 MB in total.
+
+## Development
+
+Run the independent MCP regression suite without model credentials:
 
 ```bash
-uv run pytest -s test/test_function.py test/test_logger.py
+uv run --locked python -B -m pytest src/tabagent/mcp/tests -q -p no:cacheprovider
 ```
 
-单独观察底层 LLM 的原始流式事件：
+It covers configuration, discovery limits, cancellation and cleanup, reconnect, real in-memory and stdio services, and local HTTP/SSE transports.
 
-```bash
-uv run pytest -s test/test_llm.py::test_llm
-```
+The top-level `test/` directory also contains manual examples:
 
-查询当前服务提供的模型列表：
+| Command | Purpose |
+| --- | --- |
+| `uv run --locked pytest -s test/test_function.py` | Inspect local function registration and Schema generation |
+| `uv run --locked pytest -s test/test_logger.py` | Exercise console/file logging |
+| `uv run --locked pytest -s test/test_agent.py::test_agent` | Interactive arithmetic Agent; enter `exit` to quit |
+| `uv run --locked pytest -s test/test_app.py::test_app_with_middleware` | Observe middleware execution order |
+| `uv run --locked pytest -s test/test_llm.py::test_llm_model_list` | Query a configured provider's model list |
 
-```bash
-uv run pytest -s test/test_llm.py::test_llm_model_list
-```
+Model examples make real API requests. Some examples wait for terminal input or contain machine-specific workspace paths. Inspect and adjust them before running; `-s` allows interactive input. A bare `pytest` targets `test/` and does **not** include the MCP regression suite automatically.
 
-观察 App 初始化、Agent、模型和工具中间件的执行顺序：
+For changes, keep the scope focused, add regression coverage for behavior that can fail, and keep the English and Chinese READMEs aligned.
 
-```bash
-uv run pytest -s test/test_app.py::test_app_with_middleware
-```
-
-`test_llm.py`、`test_agent.py` 和 `test_app.py` 中的用例会向配置的模型服务发送真实请求，部分用例还会等待终端输入。当前测试目录以手动运行和输出观察为主，尚未形成完整的自动化回归测试；不指定用例运行整个测试目录时，也会包含这些模型调用和交互流程。日志示例会按配置写入日志文件。
-
-## 目录结构
+## Project layout
 
 ```text
 src/tabagent/
-├── core/
-│   ├── app.py             # 统一入口与客户端资源管理
-│   ├── agent.py           # Agent 执行循环
-│   ├── llm.py             # 统一 LLM 入口
-│   ├── middleware.py      # 中间件调用链组装
-│   ├── message.py         # 消息结构
-│   ├── function.py        # 函数工具定义
-│   ├── response.py        # 流式事件类型常量
-│   ├── exceptions.py      # 自定义异常
-│   ├── lifecycle.py       # 生命周期钩子定义，尚未接入
-│   ├── config.py          # 日志配置
-│   └── logger.py          # 日志初始化
-├── llm/
-│   ├── base_llm.py        # 底层 LLM 接口
-│   ├── llm_adapter.py     # 按 provider 创建具体实现
-│   └── openai_llm.py      # OpenAI Responses 实现
-├── middleware/
-│   ├── base_middleware.py # 请求类型与中间件基类
-│   ├── logging_middleware.py # 日志中间件
-│   └── ...               # 上下文、记忆、模型、工具、MCP、技能中间件待实现
+├── core/                 # App, Agent loop, messages, middleware composition, logging
+├── llm/                  # LLM interface, adapter factory, OpenAI Responses backend
+├── middleware/           # Base, logging, model-check, and default-tool middleware
 ├── tool/
-│   ├── registry.py        # 工具注册表
+│   ├── registry.py       # Callable registration and model-facing definitions
 │   └── tools/
-│       ├── calculate_tool.py # 数学计算工具
-│       └── web_search_tool.py # 网页搜索工具占位文件
-├── mcp/                  # MCP 扩展占位目录
-└── skill/                # 技能扩展占位目录
-test/                      # 本地检查和交互示例
+│       ├── calulate/     # Calculator; current package spelling
+│       ├── file/         # Text-file and search tools
+│       ├── shell/        # Platform-specific command launchers
+│       ├── process/      # Shared job manager and process tools
+│       └── web_search/   # Placeholder
+├── mcp/                  # Standalone FastMCP client, guide, and regression tests
+└── skill/                # Placeholder
+resources/                # User-supplied MCP configuration
+test/                     # Local checks and manual/live examples
+README.md                 # English
+README.zh-CN.md           # Simplified Chinese
 ```
+
+## Current scope
+
+The current implementation supports the Python Agent API, four middleware boundaries, local tools, managed jobs, and a standalone MCP client.
+
+The following remain unfinished:
+
+- Automatic exposure of MCP tools to the Agent and App-owned MCP lifecycle.
+- Context, memory, and skill middleware; the skill module and web-search tool.
+- Additional LLM provider implementations. The DeepSeek and Qwen files are placeholders.
+- Integration of the separate `AgentLifecycle` hook definitions. Execution currently uses middleware.
+- A complete CLI and broader automated coverage of the Agent, local tools, and platform behavior.
+
+The provider abstraction currently shares Responses-style event types with the Agent. Supporting another model protocol requires event adaptation as well as a new client implementation.
