@@ -10,6 +10,7 @@ from tabagent.core.function import Function
 from tabagent.core.llm import TabAgentLLM
 from tabagent.core.message import Message
 from tabagent.tool.registry import ToolRegistry
+from tabagent.tool.tools import ProcessManager
 
 
 @dataclass
@@ -36,6 +37,14 @@ class AppInitRequest:
     max_retries: int = 3
 
     provider: str = "openai"
+
+    # 本次 App 打开期间共享的进程管理器。
+    # 由 TabAgentApp 创建、保存和关闭。
+    # 中间件负责将它传给工具工厂，不应自行替换或关闭。
+    process_manager: ProcessManager | None = field(
+        default=None,
+        repr=False,
+    )
 
 
 @dataclass

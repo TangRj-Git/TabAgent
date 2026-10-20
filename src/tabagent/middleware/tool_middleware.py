@@ -28,7 +28,8 @@ class ToolMiddleware(BaseMiddleware):
 
         # 创建工具函数，并取得各工具手动定义的参数 schema。
         default_tools = create_tools(
-            workspace=request.workspace
+            workspace=request.workspace,
+            process_manager=request.process_manager,
         )
 
         for tool, parameters in default_tools:

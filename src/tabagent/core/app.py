@@ -1,8 +1,9 @@
+import asyncio
 from contextlib import aclosing
 from dataclasses import replace
 from pathlib import Path
 from types import TracebackType
-from typing import Optional, Self, AsyncGenerator, Sequence
+from typing import Any, Optional, Self, AsyncGenerator, Sequence
 
 from tabagent.core.agent import TabAgent
 from tabagent.core.exceptions import TabAgentError
@@ -11,6 +12,7 @@ from tabagent.core.message import Message
 from tabagent.core.middleware import MiddlewareManager
 from tabagent.middleware.base_middleware import BaseMiddleware, AppInitRequest
 from tabagent.tool.registry import ToolRegistry
+from tabagent.tool.tools import ProcessManager
 
 
 class TabAgentApp:
@@ -73,7 +75,16 @@ class TabAgentApp:
         self._llm: Optional[TabAgentLLM] = None
         self._agent: Optional[TabAgent] = None
 
-        self._opening = False
+        self._process_manager: Optional[ProcessManager] = None
+
+        # 初始化和关闭共用此锁，避免两个生命周期操作交错修改资源。
+        self._lifecycle_lock = asyncio.Lock()
+
+        # 记录当前执行生命周期操作的任务，防止同一任务递归获取锁。
+        self._lifecycle_owner: asyncio.Task[Any] | None = None
+
+        # 只有全部初始化中间件执行成功后，才设置为 True。
+        self._is_open = False
 
     async def _initialize(
             self,
@@ -123,7 +134,7 @@ class TabAgentApp:
 
         agent = self._agent
 
-        if agent is None:
+        if not self._is_open or agent is None:
             raise TabAgentError(
                 "TabAgentApp is not open. "
                 "Use 'async with TabAgentApp(...)' before streaming."
@@ -135,55 +146,115 @@ class TabAgentApp:
             async for delta in stream:
                 yield delta
 
-    async def aclose(self) -> None:
-        """关闭内部创建的 LLM 客户端，允许重复调用。"""
+    async def _close_resources(self) -> None:
+        """
+        释放本实例拥有的资源。
 
+        仅供已经持有生命周期锁的内部代码调用。
+        关闭失败时保留对应引用，允许后续重试。
+        """
+        # 关闭开始后，不再接受新的 Agent 运行。
+        self._is_open = False
+        self._agent = None
+
+        process_manager = self._process_manager
         llm = self._llm
 
-        self._agent = None
-        self._llm = None
-
-        if llm is not None:
-            await llm.aclose()
-
-    async def __aenter__(self) -> Self:
-        """创建本实例拥有的 LLM 和 Agent。"""
-
-        if self._opening or self._llm is not None:
-            raise TabAgentError("TabAgentApp is already open.")
-
-        self._opening = True
-
         try:
-            # 创建本次初始化的配置，保留原始默认配置。
-            request = replace(self._config)
+            if process_manager is not None:
+                await process_manager.aclose()
 
-            # 未配置工具注册表时，保持 None。
-            if request.tool_registry is not None:
-                # 为本次请求创建独立的工具注册表副本。
-                # 后续中间件可以在副本中动态注册或删除工具，
-                # 避免影响 Agent 的默认注册表以及其他请求。
-                # 已有工具定义的内部字段是否也被复制，取决于 get_copy() 的实现。
-                request.tool_registry = request.tool_registry.get_copy()
-
-            # 初始化中间件接收并操作这里传入的 AppInitRequest 对象 request。
-            # 中间件可以在 await call_next(request) 之前修改 request 的字段，然后将修改后的 request 继续传给下一层。
-            # 最终 _initialize(request) 使用这些参数创建 LLM 和 Agent。
-            # 对象创建后，再修改 request 不会自动更新已经创建的对象。
-            await self._init_handler(request)
-
-            if self._llm is None or self._agent is None:
-                raise TabAgentError(
-                    "Initialization middleware did not create the LLM and Agent."
-                )
-        except BaseException:
-            await self.aclose()
-            raise
+                if self._process_manager is process_manager:
+                    self._process_manager = None
 
         finally:
-            self._opening = False
+            # 即使进程清理失败，也尝试关闭 LLM 客户端。
+            if llm is not None:
+                await llm.aclose()
 
-        return self
+                if self._llm is llm:
+                    self._llm = None
+
+    async def aclose(self) -> None:
+        """
+        等待正在进行的初始化或关闭操作结束，再清理资源。
+
+        允许重复调用。
+        """
+        task = asyncio.current_task()
+        if task is not None and self._lifecycle_owner is task:
+            raise TabAgentError(
+                "Cannot close the app from its initialization or cleanup. "
+                "Raise an exception to abort initialization."
+            )
+
+        async with self._lifecycle_lock:
+            self._lifecycle_owner = task
+            try:
+                await self._close_resources()
+            finally:
+                self._lifecycle_owner = None
+
+    async def __aenter__(self) -> Self:
+        """
+        创建本次 App 使用的资源。
+
+        全部初始化中间件执行成功后，才允许 Agent 运行。
+        """
+        task = asyncio.current_task()
+        if task is not None and self._lifecycle_owner is task:
+            raise TabAgentError(
+                "Cannot open the app from its initialization or cleanup."
+            )
+
+        async with self._lifecycle_lock:
+            if (
+                    self._is_open
+                    or self._llm is not None
+                    or self._process_manager is not None
+            ):
+                raise TabAgentError(
+                    "TabAgentApp is already open or still has resources to close."
+                )
+
+            self._lifecycle_owner = task
+
+            try:
+                # 必须在初始化中间件执行之前创建。
+                # 每次重新打开 App，都使用新的管理器。
+                self._process_manager = ProcessManager()
+
+                # 为本次初始化创建请求，保留原始默认配置。
+                # 这里只传递管理器引用，不复制管理器。
+                request = replace(
+                    self._config,
+                    process_manager=self._process_manager,
+                )
+
+                if request.tool_registry is not None:
+                    # 复制注册表，避免默认工具注册影响调用方的注册表。
+                    request.tool_registry = request.tool_registry.get_copy()
+
+                # 工具中间件在这里取得共享管理器，
+                # 并将它传给 Shell 和进程工具。
+                await self._init_handler(request)
+
+                if self._llm is None or self._agent is None:
+                    raise TabAgentError(
+                        "Initialization middleware did not create the LLM and Agent."
+                    )
+
+                self._is_open = True
+                return self
+
+            except BaseException:
+                # 初始化失败或被取消时，也需要清理已创建的资源。
+                # 已经持有锁，不能调用会再次获取锁的 aclose()。
+                await self._close_resources()
+                raise
+
+            finally:
+                self._lifecycle_owner = None
 
     async def __aexit__(
             self,
