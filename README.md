@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="images/tabagent.png" alt="TabAgent logo" width="160">
+</p>
+
 # TabAgent
 
 **An asynchronous Python agent harness built around middleware.**

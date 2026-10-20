@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="images/tabagent.png" alt="TabAgent 标识" width="160">
+</p>
+
 # TabAgent
 
 **以中间件为核心的异步 Python Agent 执行框架。**
