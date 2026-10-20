@@ -7,11 +7,12 @@ from tabagent.tool.tools.file.base_file import BaseFile, parameters_schema
 
 PARAMETERS = parameters_schema({
     "path": {
-        "type": "string"
+        "type": "string",
+        "description": "File path, relative to the fixed workspace or absolute. Missing parent directories are created."
     },
     "content": {
         "type": "string",
-        "description": "Complete UTF-8 text to write."
+        "description": "Complete UTF-8 text to write, not a patch or appended fragment. Empty text creates or replaces with an empty file."
     },
     "overwrite": {
         "type": "boolean",
@@ -19,7 +20,7 @@ PARAMETERS = parameters_schema({
     },
     "expected_version": {
         "type": ["string", "null"],
-        "description": "Version returned by read_file, or null."
+        "description": "Copy the version from read_file or a previous successful write/edit unchanged, or use null to skip the version check."
     },
 })
 
@@ -33,8 +34,10 @@ def create_write_file(base: BaseFile) -> Callable[..., str]:
     ) -> str:
         """Create a UTF-8 text file, including missing parent directories.
 
-        Existing files require overwrite=true. expected_version rejects stale
-        writes. Content is written exactly as supplied, without newline
+        Use edit_file for targeted replacements in an existing file. This tool
+        writes the entire file and does not append. Existing files require
+        overwrite=true. expected_version rejects stale writes.
+        Content is written exactly as supplied, without newline
         conversion. Maximum size is 8 MiB. Version checks are not external locks.
         """
         if type(overwrite) is not bool:

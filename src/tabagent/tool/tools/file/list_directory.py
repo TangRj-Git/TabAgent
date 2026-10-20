@@ -7,7 +7,7 @@ from tabagent.tool.tools.file.base_file import BaseFile, page, parameters_schema
 PARAMETERS = parameters_schema({
     "path": {
         "type": "string",
-        "description": "Directory path; use '.' for the workspace."
+        "description": "Directory path, relative to the fixed workspace or absolute; use '.' for the workspace."
     },
     "limit": {
         "type": "integer",
@@ -17,7 +17,7 @@ PARAMETERS = parameters_schema({
     },
     "cursor": {
         "type": ["string", "null"],
-        "description": "Previous next_cursor, or null for the first page."
+        "description": "Copy next_cursor unchanged for the same directory, or use null for the first page. Restart if the directory changes."
     },
 })
 
@@ -30,8 +30,10 @@ def create_list_directory(base: BaseFile) -> Callable[..., str]:
     ) -> str:
         """List immediate directory entries, including hidden entries. Does not recurse.
 
-        Relative paths use the fixed workspace. Pagination is not a snapshot;
-        restart from the first page if the directory changes.
+        Use find_paths for recursive name searches and search_text for content.
+        Hidden and Git-ignored entries are included. Relative paths use the
+        fixed workspace; an absolute path does not change that workspace.
+        Pagination is not a snapshot; restart if the directory changes.
         """
         target = base.directory(path)
         try:

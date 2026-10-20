@@ -269,6 +269,8 @@ PARAMETERS = {
     "properties": {
         "expression": {
             "type": "string",
+            "minLength": 1,
+            "maxLength": _MAX_LENGTH,
             "description": (
                 "Mathematical expression to evaluate, "
                 "for example '(12 + 8) * 4'."

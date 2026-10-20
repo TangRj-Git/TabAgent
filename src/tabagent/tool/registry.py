@@ -124,7 +124,7 @@ class ToolRegistry:
                     "parameters are supported."
                 )
 
-        tool_description = description if description is not None else tool.__doc__
+        tool_description = description if description is not None else inspect.getdoc(tool)
         tool_parameters = parameters if parameters is not None else _build_parameters(tool, strict)
 
         function = Function(

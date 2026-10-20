@@ -143,7 +143,10 @@ class BaseFile:
         if not isinstance(expected_version, str) or not expected_version:
             raise ToolArgumentsError("expected_version must be null or a file version.")
         if not path.exists() or self.read(path)[1] != expected_version:
-            raise ToolExecutionError("The file has changed since it was read.")
+            raise ToolExecutionError(
+                "The file has changed or no longer exists. Read it again, "
+                "review the current content, and retry with its new version."
+            )
 
     @staticmethod
     def replace(path: Path, raw: bytes) -> None:

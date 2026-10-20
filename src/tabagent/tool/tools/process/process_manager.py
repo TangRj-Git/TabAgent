@@ -279,11 +279,16 @@ class ProcessManager:
             *,
             cursor: str | None = None,
             wait_time: float = 0.0,
+            max_output_chars: int | None = None,
     ) -> dict[str, Any]:
-        """读取新增输出；取消本次等待不会停止进程，游标可以重复读取。"""
+        """读取新增输出；可限制每个流的返回字符数，游标只越过已返回的内容。"""
         loop = self._check_loop()
         job = self._get(job_id)
         wait_time = _seconds(wait_time, "wait_time", wait=True)
+        if max_output_chars is not None and (
+            type(max_output_chars) is not int or not 1 <= max_output_chars <= 50_000
+        ):
+            raise ToolArgumentsError("max_output_chars must be an integer between 1 and 50000, or None.")
         out_offset = err_offset = 0
         if cursor is not None:
             try:
@@ -313,7 +318,7 @@ class ProcessManager:
                 await asyncio.wait_for(job.output.changed.wait(), remaining)
             except TimeoutError:
                 break
-        return self._snapshot(job, out_offset, err_offset)
+        return self._snapshot(job, out_offset, err_offset, max_output_chars)
 
     async def stop(self, job_id: str) -> dict[str, Any]:
         """强制停止指定任务；重复停止已结束任务不会改变原来的退出状态。"""
@@ -382,15 +387,32 @@ class ProcessManager:
             return "stopping" if job.stop_reason else "running"
         return job.stop_reason or ("completed" if code == 0 else "failed")
 
-    def _snapshot(self, job: _Job, out_offset: int, err_offset: int) -> dict[str, Any]:
+    def _snapshot(
+            self, job: _Job, out_offset: int, err_offset: int,
+            max_output_chars: int | None = None,
+    ) -> dict[str, Any]:
         stdout, out_truncated = job.output.stdout.read(out_offset)
         stderr, err_truncated = job.output.stderr.read(err_offset)
+        stdout = stdout[:max_output_chars]
+        stderr = stderr[:max_output_chars]
+        out_dropped = max(0, job.output.stdout.total - len(job.output.stdout.text) - out_offset)
+        err_dropped = max(0, job.output.stderr.total - len(job.output.stderr.text) - err_offset)
+        # 缓冲区已丢失的内容无法重读；仍保留但本次未返回的内容不能被游标跳过。
+        out_next = out_offset + out_dropped + len(stdout)
+        err_next = err_offset + err_dropped + len(stderr)
         return {
             "job_id": job.job_id, "status": self._status(job),
             "exit_code": job.process.get_returncode(),
             "stdout": stdout, "stderr": stderr,
-            "next_cursor": f"{job.job_id}:{job.output.stdout.total}:{job.output.stderr.total}",
+            "next_cursor": f"{job.job_id}:{out_next}:{err_next}",
             "stdout_truncated": out_truncated, "stderr_truncated": err_truncated,
+            "stdout_total_chars": job.output.stdout.total,
+            "stderr_total_chars": job.output.stderr.total,
+            "stdout_dropped_chars": out_dropped, "stderr_dropped_chars": err_dropped,
+            "output_limit_chars": self._output_limit,
+            "has_more_output": (
+                out_next < job.output.stdout.total or err_next < job.output.stderr.total
+            ),
             "timed_out": job.timed_out,
             "output_complete": job.done.is_set() and not job.output.incomplete,
             "error": job.error or job.output.error,

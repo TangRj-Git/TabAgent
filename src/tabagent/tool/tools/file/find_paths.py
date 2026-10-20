@@ -8,11 +8,11 @@ from tabagent.tool.tools.file.base_file import BaseFile, page, parameters_schema
 PARAMETERS = parameters_schema({
     "pattern": {
         "type": "string",
-        "description": "Case-sensitive glob matched against names or relative paths, e.g. '*.py'."
+        "description": "Case-sensitive fnmatch pattern. Without a slash, match basenames at any depth (e.g. '*.py'); with slashes, match root-relative paths. '*' can cross slashes; '**/' is not an optional directory prefix. Backslashes are normalized to '/'."
     },
     "path": {
         "type": "string",
-        "description": "Search root; normally '.'."
+        "description": "Root directory, relative to the fixed workspace or absolute; normally '.'."
     },
     "kind": {
         "type": "string",
@@ -20,7 +20,8 @@ PARAMETERS = parameters_schema({
             "file",
             "directory",
             "any"
-        ]
+        ],
+        "description": "Filter by entry type; normally 'any', which also includes symlinks and other entries."
     },
     "respect_ignore": {
         "type": "boolean",
@@ -29,10 +30,12 @@ PARAMETERS = parameters_schema({
     "limit": {
         "type": "integer",
         "minimum": 1,
-        "maximum": 1000
+        "maximum": 1000,
+        "description": "Maximum entries per page; normally 100. The output size limit may return fewer."
     },
     "cursor": {
-        "type": ["string", "null"]
+        "type": ["string", "null"],
+        "description": "Copy next_cursor unchanged with the same search parameters, or use null for the first page. Restart if entries change."
     },
 })
 
@@ -48,10 +51,13 @@ def create_find_paths(base: BaseFile) -> Callable[..., str]:
     ) -> str:
         """Recursively find files or directories by a case-sensitive glob.
 
+        Use list_directory for immediate entries and search_text for content.
         Patterns without '/' match names; other patterns match paths relative
-        to the search root using fnmatch semantics. Never traverse directory
-        symlinks or .git. Git ignore rules apply only inside Git repositories
-        when Git is installed. Reuse cursors only with the same query.
+        to the search root using fnmatch semantics: '*' can cross '/', and
+        '**/' does not match zero directories. Backslashes are normalized to '/'.
+        During traversal, skip .git entries and do not descend into directory
+        symlinks. Git ignore rules apply only inside Git repositories when Git
+        is installed. Reuse cursors only with the same query and unchanged files.
         """
         if not isinstance(pattern, str) or not pattern:
             raise ToolArgumentsError("pattern must be a non-empty string.")

@@ -9,7 +9,7 @@ PARAMETERS = {
     "properties": {
         "job_id": {
             "type": "string",
-            "description": "Identifier of the managed job to stop.",
+            "description": "Job identifier from a managed Shell call or process_list; not an operating-system PID.",
         },
     },
     "required": ["job_id"],
@@ -25,7 +25,8 @@ def create_process_stop(manager: ProcessManager) -> ProcessTool:
         has already exited, and detached descendants, are not fully managed.
         Stopping an already finished job preserves its original exit status.
         Check the returned status; termination failures are reported as errors.
-        Stopping does not undo earlier side effects.
+        This forcibly terminates rather than pauses the process; it cannot be
+        resumed. Stopping does not undo earlier side effects.
         """
         result = await manager.stop(job_id)
         return json.dumps(result, ensure_ascii=False, allow_nan=False)
