@@ -146,19 +146,58 @@ class ProcessManager:
             output_limit: int = 25_600,
     ) -> None:
         for name, value in (
-            ("max_running", max_running),
-            ("max_finished", max_finished),
-            ("output_limit", output_limit),
+                ("max_running", max_running),
+                ("max_finished", max_finished),
+                ("output_limit", output_limit),
         ):
             if isinstance(value, bool) or not isinstance(value, int) or value < 1:
                 raise ToolArgumentsError(f"{name} must be a positive integer.")
+
+        # 控制这个管理器最多同时管理多少个尚未结束的任务，默认是 16。
+        # 这里统计的是管理器中的任务数，不是整个电脑上的进程数。一个任务内部再启动子进程，也不会按每个子进程分别计算。
+        # 另外，进程虽然已经退出，但输出和清理工作尚未完成时，也可能暂时计入这个数量。
         self._max_running = max_running
+
+        # 控制最多保留多少条已经结束的任务记录，默认是 64。
+        # 任务结束后，没有立即从管理器中消失，因此后续仍然可以查询它的：
+        # - 退出状态和退出码。
+        # - 已保留的标准输出、错误输出。
+        # - 是否超时、是否被停止等信息。
+        # 当可清理的已结束记录超过 64 条时，_prune() 会移除较早结束的记录。
+        # 它控制的是内存中的历史记录数量，不会删除程序生成的文件，也不会为了腾位置而停止正在运行的任务。
         self._max_finished = max_finished
+
+        # 控制每个任务、每个输出流最多保留多少个字符，默认是 25_600。
+        # 因此，一个任务的两个输出缓冲区合起来，最多保留 51,200 个字符。
+        # 超过限制时，保留最新的尾部内容，丢弃最早的内容。
+        # 达到这个限制不会停止程序。程序仍然可以继续输出，只是旧内容会不断被替换。它也不同于 read() 的 max_output_chars：后者控制一次查询返回多少字符。
         self._output_limit = output_limit
+
+        # 这是管理器的任务记录表。
+        # 键 str：任务标识 job_id。
+        # 值 _Job：这个任务的完整内部记录。
         self._jobs: dict[str, _Job] = {}
+
+        # 这是一个异步锁，用于保护需要连续完成的共享状态操作。
+        # 这个锁不会让所有程序串行运行。 锁在进程创建、记录保存之后就释放了，进程本身可以继续在后台运行。等待程序完成的逻辑位于锁外。
+        # 它用于协调同一个事件循环中的协程，不是跨线程锁。
         self._lock = asyncio.Lock()
+
+        # 保存这个管理器所属的事件循环。
         self._loop: asyncio.AbstractEventLoop | None = None
+
+        # 这是一个禁止继续启动任务的状态标记。
+        # 这里需要区分：
+        # _closed == True 表示已经进入关闭状态，不代表所有清理工作都已成功完成。
+        # 即使清理失败，它仍然保持 True，防止继续启动新任务。之后可以再次调用 aclose() 重试清理，但不能重新开放这个管理器来启动任务。
+        # 如果需要重新使用，应创建新的 ProcessManager。
         self._closed = False
+
+        # 保存整个管理器的异步清理任务。
+        # 保存它主要有三个作用：
+        # - 共享清理过程。 多个协程同时调用 aclose() 时，可以等待同一个尚未完成的清理任务。
+        # - 检查清理是否结束。 通过 .done() 判断任务是否已经完成。
+        # - 支持重试。 上一次清理结束但失败了，后续调用可以重新创建清理任务。
         self._close_task: asyncio.Task[None] | None = None
 
     def _check_loop(self) -> asyncio.AbstractEventLoop:
@@ -184,21 +223,21 @@ class ProcessManager:
         """启动 argv 中的解释器及参数；command 仅用于展示，不参与执行。"""
         loop = self._check_loop()
         if (
-            not isinstance(argv, list)
-            or not argv
-            or any(not isinstance(arg, str) or "\0" in arg for arg in argv)
-            or not argv[0]
+                not isinstance(argv, list)
+                or not argv
+                or any(not isinstance(arg, str) or "\0" in arg for arg in argv)
+                or not argv[0]
         ):
             raise ToolArgumentsError("argv must be a non-empty list of valid strings.")
         if command is not None and not isinstance(command, str):
             raise ToolArgumentsError("command must be a string or None.")
         if env is not None and (
-            not isinstance(env, dict)
-            or any(
-                not isinstance(key, str) or not key or "=" in key or "\0" in key
-                or not isinstance(value, str) or "\0" in value
-                for key, value in env.items()
-            )
+                not isinstance(env, dict)
+                or any(
+            not isinstance(key, str) or not key or "=" in key or "\0" in key
+            or not isinstance(value, str) or "\0" in value
+            for key, value in env.items()
+        )
         ):
             raise ToolArgumentsError("env must map valid environment names to strings.")
         wait_time = _seconds(wait_time, "wait_time", wait=True)
@@ -286,7 +325,7 @@ class ProcessManager:
         job = self._get(job_id)
         wait_time = _seconds(wait_time, "wait_time", wait=True)
         if max_output_chars is not None and (
-            type(max_output_chars) is not int or not 1 <= max_output_chars <= 50_000
+                type(max_output_chars) is not int or not 1 <= max_output_chars <= 50_000
         ):
             raise ToolArgumentsError("max_output_chars must be an integer between 1 and 50000, or None.")
         out_offset = err_offset = 0
@@ -295,9 +334,9 @@ class ProcessManager:
                 owner, out_text, err_text = cursor.split(":")
                 out_offset, err_offset = int(out_text), int(err_text)
                 if (
-                    owner != job_id
-                    or not 0 <= out_offset <= job.output.stdout.total
-                    or not 0 <= err_offset <= job.output.stderr.total
+                        owner != job_id
+                        or not 0 <= out_offset <= job.output.stdout.total
+                        or not 0 <= err_offset <= job.output.stderr.total
                 ):
                     raise ValueError
             except (AttributeError, TypeError, ValueError) as exc:
@@ -305,10 +344,10 @@ class ProcessManager:
 
         deadline = loop.time() + wait_time
         while (
-            not job.done.is_set()
-            and job.output.stdout.total == out_offset
-            and job.output.stderr.total == err_offset
-            and job.error is None and job.output.error is None
+                not job.done.is_set()
+                and job.output.stdout.total == out_offset
+                and job.output.stderr.total == err_offset
+                and job.error is None and job.output.error is None
         ):
             remaining = deadline - loop.time()
             if remaining <= 0:
@@ -411,7 +450,7 @@ class ProcessManager:
             "stdout_dropped_chars": out_dropped, "stderr_dropped_chars": err_dropped,
             "output_limit_chars": self._output_limit,
             "has_more_output": (
-                out_next < job.output.stdout.total or err_next < job.output.stderr.total
+                    out_next < job.output.stdout.total or err_next < job.output.stderr.total
             ),
             "timed_out": job.timed_out,
             "output_complete": job.done.is_set() and not job.output.incomplete,

@@ -13,7 +13,12 @@ if TYPE_CHECKING:
 class MCPError(TabAgentError):
     """MCP 模块异常的基类。"""
 
-    def __init__(self, message: str, *, info: MCPErrorInfo | None = None) -> None:
+    def __init__(
+            self,
+            message: str,
+            *,
+            info: MCPErrorInfo | None = None
+    ) -> None:
         super().__init__(message)
         self.info = info
 

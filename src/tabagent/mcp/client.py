@@ -28,7 +28,12 @@ from .transport import create_client
 class MCPServerClient:
     """一个实例只在一个事件循环中使用；目录读取返回独立快照。"""
 
-    def __init__(self, *, server_id: str, config: ServerConfig) -> None:
+    def __init__(
+            self,
+            *,
+            server_id: str,  # server_id 是这个 MCP 服务在客户端侧的名字，用于区分和定位不同服务。
+            config: ServerConfig,
+    ) -> None:
         if not isinstance(server_id, str) or not server_id or server_id != server_id.strip():
             raise MCPConfigError("server_id must be nonempty and have no surrounding whitespace.")
         if not isinstance(config, (StdioConfig, RemoteConfig)):
@@ -68,7 +73,7 @@ class MCPServerClient:
 
     def _check_connection(self) -> None:
         if self._info.state == "connected" and (
-            self._client is None or not self._client.is_connected()
+                self._client is None or not self._client.is_connected()
         ):
             self._info.state = "failed"
             self._info.error = MCPErrorInfo(
@@ -159,7 +164,9 @@ class MCPServerClient:
             raise MCPConnectionError("Server capabilities are unavailable.")
 
         async def query(
-            name: str, supported: bool, fetch: Callable[..., Awaitable[Any]],
+                name: str,
+                supported: bool,
+                fetch: Callable[..., Awaitable[Any]],
         ) -> None:
             collection = await discover_collection(
                 server_id=self.server_id,
@@ -200,11 +207,11 @@ class MCPServerClient:
         return await self.wait_for_discovery()
 
     async def call_tool(
-        self,
-        *,
-        name: str,
-        arguments: dict[str, Any] | None = None,
-        timeout: float | None = None,
+            self,
+            *,
+            name: str,
+            arguments: dict[str, Any] | None = None,
+            timeout: float | None = None,
     ) -> CallToolResult:
         """保留原始协议结果；超时、取消或断线都不会自动重试工具。"""
         client = self._require_client()
@@ -213,8 +220,8 @@ class MCPServerClient:
         arguments = copy_arguments(arguments)
         limit = self._config.request_timeout if timeout is None else timeout
         if limit is not None and (
-            isinstance(limit, bool) or not isinstance(limit, (float, int))
-            or not math.isfinite(limit) or limit <= 0
+                isinstance(limit, bool) or not isinstance(limit, (float, int))
+                or not math.isfinite(limit) or limit <= 0
         ):
             raise MCPRequestError("Tool timeout must be a positive finite number.")
 
@@ -312,10 +319,10 @@ class MCPServerClient:
         return self
 
     async def __aexit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc: BaseException | None,
-        traceback: TracebackType | None,
+            self,
+            exc_type: type[BaseException] | None,
+            exc: BaseException | None,
+            traceback: TracebackType | None,
     ) -> None:
         try:
             await self.aclose()

@@ -1,0 +1,92 @@
+{
+  "mcpServers": {
+    "time": {
+      "transport": "stdio",
+      "command": "uvx",
+      "args": [
+        "--from",
+        "mcp-server-time==2026.10.19",
+        "mcp-server-time",
+        "--local-timezone=Asia/Shanghai"
+      ],
+      "cwd": "..",
+      "env": {
+        "PYTHONIOENCODING": "utf-8"
+      },
+      "connect_timeout": 180.0
+    },
+    "filesystem": {
+      "transport": "stdio",
+      "command": "cmd.exe",
+      "args": [
+        "/d",
+        "/c",
+        "npx",
+        "-y",
+        "@modelcontextprotocol/server-filesystem@2.0.0",
+        "E:/OpenProject/TabAgent"
+      ],
+      "cwd": "..",
+      "connect_timeout": 180.0
+    },
+    "git": {
+      "transport": "stdio",
+      "command": "uvx",
+      "args": [
+        "--from",
+        "mcp-server-git==2026.10.19",
+        "mcp-server-git",
+        "--repository",
+        "E:/OpenProject/TabAgent"
+      ],
+      "cwd": "..",
+      "env": {
+        "PYTHONIOENCODING": "utf-8"
+      },
+      "connect_timeout": 180.0
+    },
+    "memory": {
+      "transport": "stdio",
+      "command": "cmd.exe",
+      "args": [
+        "/d",
+        "/c",
+        "npx",
+        "-y",
+        "@modelcontextprotocol/server-memory@2.0.0"
+      ],
+      "cwd": "..",
+      "env": {
+        "MEMORY_FILE_PATH": "E:/OpenProject/TabAgent/resources/mcp_memory.jsonl"
+      },
+      "connect_timeout": 180.0
+    },
+    "fetch": {
+      "transport": "stdio",
+      "command": "uvx",
+      "args": [
+        "--from",
+        "mcp-server-fetch==2026.10.19",
+        "mcp-server-fetch"
+      ],
+      "cwd": "..",
+      "env": {
+        "PYTHONIOENCODING": "utf-8"
+      },
+      "connect_timeout": 180.0
+    },
+    "everything": {
+      "transport": "stdio",
+      "command": "cmd.exe",
+      "args": [
+        "/d",
+        "/c",
+        "npx",
+        "-y",
+        "@modelcontextprotocol/server-everything@2.0.0"
+      ],
+      "cwd": "..",
+      "connect_timeout": 180.0
+    }
+  }
+}

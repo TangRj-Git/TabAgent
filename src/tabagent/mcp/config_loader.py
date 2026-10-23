@@ -15,7 +15,9 @@ _ENV_REFERENCE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 
 
 def resolve_config_path(config_path: str | Path) -> Path:
-    """将调用者明确提供的路径固定为绝对路径。"""
+    """
+    这个函数负责把传入的配置文件路径转换成绝对路径，并对不合法的输入或路径处理错误给出统一异常。
+    """
     if not isinstance(config_path, (str, Path)) or not str(config_path).strip():
         raise MCPConfigError("config_path must be a nonempty string or Path.")
     try:
@@ -25,6 +27,7 @@ def resolve_config_path(config_path: str | Path) -> Path:
 
 
 def _unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    """这个函数的作用是：把一组键值对转换成字典，并检查是否存在重复的键。发现重复就报错，避免配置被悄悄覆盖。"""
     result: dict[str, Any] = {}
     for key, value in pairs:
         if key in result:
@@ -38,6 +41,7 @@ def _reject_constant(_: str) -> None:
 
 
 def _expand_environment(value: Any) -> Any:
+    """这个函数的作用是：遍历配置数据，把字符串中的 ${环境变量名} 替换成对应的环境变量值。 如果数据包含嵌套的列表、字典，它会递归处理。"""
     if isinstance(value, str):
         def replace(match: re.Match[str]) -> str:
             name = match.group(1)
@@ -58,10 +62,13 @@ def load_mcp_config(config_path: str | Path) -> MCPClientConfig:
     """加载必填路径；相对 cwd 以配置文件所在目录为基准。"""
     path = resolve_config_path(config_path)
     try:
+        # 读取 JSON 配置文件，将其转换成 Python 数据，同时拒绝重复的键和 NaN、Infinity 等特殊数值。
         raw = json.loads(
-            path.read_text(encoding="utf-8-sig"),
-            object_pairs_hook=_unique_object,
-            parse_constant=_reject_constant,
+            path.read_text(encoding="utf-8-sig"),  # path 是一个 Path 对象，read_text() 会读取整个文件并返回字符串。
+            # 使用 _unique_object 检查重复键
+            object_pairs_hook=_unique_object,  # object_pairs_hook 允许你自定义“如何把 JSON 对象转换成 Python 对象”。
+            # 使用 _reject_constant 拒绝特殊数值
+            parse_constant=_reject_constant,  # 设置 parse_constant 后，遇到这些标记时，会调用你提供的函数，并传入相应的字符串，例如 "NaN"。
         )
     except OSError:
         raise MCPConfigError("Cannot read the MCP configuration file.") from None
@@ -111,3 +118,72 @@ def load_mcp_config(config_path: str | Path) -> MCPClientConfig:
             for item in exc.errors(include_url=False, include_context=False, include_input=False)
         )
         raise MCPConfigError(f"Invalid MCP configuration ({issues}).") from None
+
+
+"""
+{
+  "mcpServers": {
+    "python_tools": {
+      "transport": "stdio",
+      "command": "python",
+      "args": ["server.py", "--debug"],
+      "env": {
+        "API_KEY": "${API_KEY}"
+      },
+      "enabled": true,
+      "required": false,
+      "connect_timeout": 30.0,
+      "request_timeout": null
+    }
+  }
+}
+
+raw = {
+    "mcpServers": {
+        "python_tools": {
+            "transport": "stdio",
+            "command": "python",
+            "args": ["server.py", "--debug"],
+            "env": {
+                "API_KEY": "${API_KEY}"
+            },
+            "enabled": True,
+            "required": False,
+            "connect_timeout": 30.0,
+            "request_timeout": None,
+        }
+    }
+}
+
+MCPClientConfig(
+    servers={
+        "python_tools": StdioConfig(
+            # JSON 中提供的连接配置
+            transport="stdio",
+            command="python",
+            args=["server.py", "--debug"],
+
+            # 环境变量已经展开，并被包装成 SecretStr
+            env={
+                "API_KEY": SecretStr("demo-key"),
+            },
+
+            # JSON 未指定 cwd，加载器使用配置文件所在目录
+            cwd=r"E:\OpenProject\TabAgent\resources",
+
+            # JSON 中显式提供的公共配置
+            enabled=True,
+            required=False,
+            connect_timeout=30.0,
+            request_timeout=None,
+
+            # JSON 中没有提供，由模型补上的默认值
+            discovery_timeout=60.0,
+            close_timeout=5.0,
+            max_discovery_pages=250,
+            max_discovery_items=10000,
+            max_cursor_bytes=65536,
+        ),
+    },
+)
+"""
