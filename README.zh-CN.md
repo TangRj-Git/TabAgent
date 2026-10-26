@@ -10,9 +10,9 @@
 
 TabAgent 将模型流式响应、Python 工具、对话历史和资源管理组织为一个 Agent harness。中间件包围应用初始化、Agent 运行、模型调用和工具执行，让你在各个边界准备输入、调整行为、检查结果和清理资源。
 
-项目正在持续开发。目前通过 Python API 使用；`tabagent` 命令仍只打印占位问候语。
+项目处于早期开发阶段（Alpha），API 可能调整。目前通过 Python API 使用，暂未注册 `tabagent` 命令行入口。
 
-[快速开始](#快速开始) · [架构](#架构) · [中间件](#中间件) · [工具](#工具) · [MCP](#mcp-客户端) · [开发与测试](#开发与测试) · [当前范围](#当前范围)
+[快速开始](#快速开始) · [架构](#架构) · [中间件](#中间件) · [工具](#工具) · [MCP](#mcp-客户端) · [开发与测试](#开发与测试) · [当前范围](#当前范围) · [反馈](#反馈) · [许可证](#许可证)
 
 ## 可以用它做什么
 
@@ -27,13 +27,17 @@ TabAgent 将模型流式响应、Python 工具、对话历史和资源管理组�
 
 ### 1. 安装
 
-需要 Python **3.12+** 和 [uv](https://docs.astral.sh/uv/)。在本地项目根目录执行：
+需要 Python **3.12+**、Git 和 [uv](https://docs.astral.sh/uv/)。从源码仓库开始：
 
 ```bash
+git clone https://github.com/TangRj-Git/TabAgent.git
+cd TabAgent
 uv sync --locked
 ```
 
-该命令根据锁文件，将项目及其依赖安装到 `.venv`。项目的 `.python-version` 指定 Python 3.12。
+如果已经克隆仓库，只需在项目根目录执行 `uv sync --locked`。该命令根据锁文件，将本地项目及其依赖安装到 `.venv`，不会发布安装包。项目的 `.python-version` 指定 Python 3.12。
+
+默认同步还会安装 `dev` 开发依赖组：`pytest` 用于本地示例，`python-dotenv` 用于在下方示例中加载 `.env`。库本身的构造函数不依赖 `python-dotenv`。
 
 内置 Shell 工具还要求系统对应的解释器能够通过 `PATH` 找到：
 
@@ -47,7 +51,7 @@ uv sync --locked
 
 ### 2. 配置模型
 
-在本地 `.env` 中填写服务地址、密钥和模型名称：
+将 [.env.example](.env.example) 复制为本地 `.env`（如果已经存在，则保留原有配置），然后填写服务地址、密钥和模型名称。本地 `.env` 文件已被 Git 忽略，请勿提交真实凭据。
 
 ```dotenv
 OPENAI_BASE_URL=https://api.openai.com/v1
@@ -62,6 +66,8 @@ OPENAI_MODEL=your-model-id
 ### 3. 运行 Agent
 
 将下面的代码保存为项目根目录下的 `example.py`：
+
+此示例会发出真实模型请求，可能产生服务费用。它还会以当前进程权限向 Agent 提供本地文件和 Shell 工具，请选择你允许 Agent 访问的工作目录。
 
 ```python
 import asyncio
@@ -302,21 +308,43 @@ registry.register_tool(multiply)
 - **执行：** 通过 `(server_id, name)` 明确路由，保留完整工具结果；目前只发现资源和 Prompt，不读取资源内容或渲染 Prompt。
 - **生命周期：** 限制启动并发数，独立发现元数据，支持显式重连和清理任务追踪。
 
-在 `resources/mcp_config.json` 中填写服务配置，例如：
+连接前请先检查 [resources/mcp_config.json](resources/mcp_config.json)。仓库中的配置包含本地开发设置，例如 Windows 的 `cmd.exe` 命令和本机绝对路径。请按自己的环境调整路径和命令，并禁用或移除不打算启动的服务。
+
+如果只需要一个时间服务，可以使用以下最小配置：
 
 ```json
 {
   "mcpServers": {
-    "local-service": {
+    "time": {
+      "transport": "stdio",
       "command": "uvx",
-      "args": ["<your-mcp-server-package>"],
-      "cwd": ".."
+      "args": [
+        "--from",
+        "mcp-server-time==2026.10.19",
+        "mcp-server-time"
+      ],
+      "cwd": "..",
+      "env": {
+        "PYTHONIOENCODING": "utf-8"
+      },
+      "required": true,
+      "connect_timeout": 180.0
     }
   }
 }
 ```
 
-将包名占位符替换为真实 MCP 服务。命令需要能够通过 `PATH` 找到；相对 `cwd` 以配置文件所在目录为基准。
+将配置保存到 `resources/mcp_config.json`，或给管理器传入自己的 JSON 路径。`uvx` 需要能够通过 `PATH` 找到；首次运行可能下载服务包，需要网络访问。只启动你信任的服务包。相对 `cwd` 以配置文件所在目录为基准，因此这里的 `".."` 指向仓库根目录。
+
+MCP 配置支持在字符串值中使用 `${NAME}` 引用环境变量。取值来自当前进程环境，加载器不会自动读取 `.env`；如有需要，应在加载配置或连接之前显式调用 `load_dotenv()`。不要把真实凭据写入已提交的 JSON 文件。
+
+可以先只校验配置，不启动任何服务，也不请求模型：
+
+```bash
+uv run --locked python -c "from tabagent.mcp import load_mcp_config; config = load_mcp_config('resources/mcp_config.json'); print('Configured servers:', ', '.join(config.servers))"
+```
+
+该检查验证配置格式和本地工作目录，不验证命令是否可用、连接是否成功或认证是否有效。确认配置后，下方 Python 示例才会真正启动配置的服务并发现其能力：
 
 ```python
 import asyncio
@@ -345,9 +373,11 @@ if __name__ == "__main__":
 
 默认打开客户端时等待工具目录；`wait_ready(include_metadata=True)` 还会等待其他目录。`connect(wait_for_optional=False)` 可以让可选服务在后台启动。清理超时通过 `cleanup_error` 和 `cleanup_pending` 保持可见。
 
+`startup_concurrency` 限制同时执行启动流程的服务数量，不限制最终连接总数，也不是工具调用并发上限。将服务的 `required` 设为 `true` 后，连接或工具目录发现失败会导致管理器启动失败；可选服务的错误可以通过其状态和目录查询。
+
 **MCP 尚未接入 `TabAgentApp` 或 `ToolRegistry`。** 客户端模块已经实现，Agent 适配器和 MCP 中间件属于下一层集成工作。
 
-完整配置、认证、生命周期和测试说明见 [MCP 使用指南](src/tabagent/mcp/README.md)。实际 OAuth 登录需要针对选用的服务验证。
+配置字段和校验规则见 [config.py](src/tabagent/mcp/config.py) 与 [config_loader.py](src/tabagent/mcp/config_loader.py)，生命周期协调逻辑见 [manager.py](src/tabagent/mcp/manager.py)。实际 OAuth 登录需要针对选用的服务验证。
 
 ## 日志
 
@@ -364,25 +394,28 @@ if __name__ == "__main__":
 
 ## 开发与测试
 
-不需要模型密钥即可运行独立的 MCP 回归测试：
+当前 `test/` 目录包含本地检查及手动、真实服务示例，并不是完整的回归测试集。默认执行 `uv sync --locked` 时会安装开发依赖。
+
+可以先运行以下本地示例；它们不会加载模型凭据、请求模型 API 或启动 MCP 服务：
 
 ```bash
-uv run --locked python -B -m pytest src/tabagent/mcp/tests -q -p no:cacheprovider
+uv run --locked python -B -m pytest test/test_function.py test/test_thread.py -q -p no:cacheprovider
 ```
 
-测试覆盖配置、发现上限、取消和清理、重连、真实内存与 stdio 服务，以及本地 HTTP/SSE 传输。
+这些示例检查函数签名、工具注册和基本线程协作。通过不代表已经验证 Agent 的模型集成，或 MCP 的传输与认证。当前仓库没有独立的 MCP 回归测试集；基础配置检查可以使用上文只加载配置的命令。
 
-项目根目录下的 `test/` 还包含手动示例：
+其他示例应先检查运行要求，再按需单独执行：
 
-| 命令 | 用途 |
+| 命令 | 用途与要求 |
 | --- | --- |
-| `uv run --locked pytest -s test/test_function.py` | 查看本地函数注册与 Schema 构建 |
-| `uv run --locked pytest -s test/test_logger.py` | 检查控制台和文件日志 |
-| `uv run --locked pytest -s test/test_agent.py::test_agent` | 交互式算术 Agent，输入 `exit` 退出 |
-| `uv run --locked pytest -s test/test_app.py::test_app_with_middleware` | 观察中间件执行顺序 |
-| `uv run --locked pytest -s test/test_llm.py::test_llm_model_list` | 查询配置服务提供的模型列表 |
+| `uv run --locked pytest -s test/test_function.py` | 查看函数注册和 Schema 输出，不需要模型凭据 |
+| `uv run --locked pytest -s test/test_logger.py` | 检查控制台和文件日志，会写入本地日志 |
+| `uv run --locked pytest -s test/test_mcp.py` | 仅检查管理器构造；需先调整写死的配置路径，不会连接服务 |
+| `uv run --locked pytest -s test/test_agent.py::test_agent` | 交互式算术 Agent，需要模型凭据和网络，输入 `exit` 退出 |
+| `uv run --locked pytest -s test/test_app.py::test_app_with_middleware` | 使用真实模型观察中间件执行，需要凭据和网络 |
+| `uv run --locked pytest -s test/test_llm.py::test_llm_model_list` | 查询真实服务的模型列表，需要凭据和网络 |
 
-模型示例会发出真实 API 请求。部分示例等待终端输入，或包含本机专用的工作目录路径，运行前需要检查并调整。`-s` 用于允许交互输入。直接执行 `pytest` 默认查找 `test/`，**不会**自动包含 MCP 回归测试。
+模型示例会发出真实 API 请求，可能产生费用。部分示例等待终端输入、读写本地文件，或包含本机专用的工作目录路径，运行前需要检查并调整。`-s` 会关闭输入输出捕获，便于交互。直接执行 `pytest` 默认查找整个 `test/`，其中包含真实服务和交互示例，不能将其当作安全的离线测试命令。
 
 修改时保持范围清晰，为可能出错的行为补充回归验证，并同步维护中英文 README。
 
@@ -401,10 +434,14 @@ src/tabagent/
 │       ├── shell/        # 对应操作系统的命令启动工具
 │       ├── process/      # 共享任务管理器和进程工具
 │       └── web_search/   # 占位模块
-├── mcp/                  # 独立 FastMCP 客户端、说明和回归测试
+├── mcp/                  # 独立 FastMCP 客户端、配置与能力发现
 └── skill/                # 占位模块
-resources/                # 用户提供的 MCP 配置
+resources/                # MCP 配置，使用前检查本机路径和命令
 test/                     # 本地检查及手动、真实服务示例
+.env.example              # 模型配置模板，不含真实凭据
+LICENSE                   # MIT 许可证
+pyproject.toml            # 项目信息及运行、开发依赖声明
+uv.lock                   # 锁定的依赖版本
 README.md                 # 英文
 README.zh-CN.md           # 简体中文
 ```
@@ -412,6 +449,8 @@ README.zh-CN.md           # 简体中文
 ## 当前范围
 
 当前实现提供 Python Agent API、四类中间件包装、本地工具、托管任务和独立 MCP 客户端。
+
+目前尚未实现多 Agent 协作调度。连接多个 MCP 服务与协调多个 Agent 是不同的能力。
 
 以下内容尚未完成：
 
@@ -422,3 +461,13 @@ README.zh-CN.md           # 简体中文
 - 完整的 CLI，以及 Agent、本地工具和不同平台行为的更全面自动化测试。
 
 当前供应商抽象与 Agent 共用 Responses 风格的事件类型。支持其他模型协议时，除了新增客户端实现，还需要适配事件结构。
+
+## 反馈
+
+项目由 **TangRuoJie** 维护。问题反馈与功能建议请提交到 [GitHub Issues](https://github.com/TangRj-Git/TabAgent/issues)。请提供复现步骤、Python 版本和操作系统信息，并清除日志及配置片段中的凭据和私人信息。
+
+## 许可证
+
+本项目采用 [MIT 许可证](LICENSE)。
+
+版权所有 (c) 2026 TangRuoJie。

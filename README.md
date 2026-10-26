@@ -10,9 +10,9 @@
 
 TabAgent combines streamed model responses, Python tools, conversation history, and resource management. Middleware surrounds application initialization, Agent runs, model calls, and tool execution so that you can prepare inputs, adjust behavior, inspect results, and clean up resources at each boundary.
 
-The project is under active development. The current entry point is the Python API; the `tabagent` command still prints a placeholder greeting.
+The project is in early development (Alpha), and APIs may change. The current entry point is the Python API; no `tabagent` console command is registered yet.
 
-[Quick start](#quick-start) · [Architecture](#architecture) · [Middleware](#middleware) · [Tools](#tools) · [MCP](#mcp-client) · [Development](#development) · [Current scope](#current-scope)
+[Quick start](#quick-start) · [Architecture](#architecture) · [Middleware](#middleware) · [Tools](#tools) · [MCP](#mcp-client) · [Development](#development) · [Current scope](#current-scope) · [Feedback](#feedback) · [License](#license)
 
 ## What you can build with it
 
@@ -27,13 +27,17 @@ The model chooses among the tools exposed to it. The surrounding harness control
 
 ### 1. Install
 
-Use Python **3.12+** and [uv](https://docs.astral.sh/uv/). From a local checkout:
+Use Python **3.12+**, Git, and [uv](https://docs.astral.sh/uv/). Set up a source checkout:
 
 ```bash
+git clone https://github.com/TangRj-Git/TabAgent.git
+cd TabAgent
 uv sync --locked
 ```
 
-This installs the project and its locked dependencies into `.venv`. The checkout's `.python-version` selects Python 3.12.
+If you already have a checkout, run only `uv sync --locked` from its root. This installs the local project and its locked dependencies into `.venv`; it does not publish a package. The checkout's `.python-version` selects Python 3.12.
+
+The default sync also includes the `dev` dependency group: `pytest` for the local examples and `python-dotenv` for loading `.env` in the examples below. Core library constructors do not require `python-dotenv`.
 
 The built-in Shell tool also requires the corresponding interpreter on `PATH`:
 
@@ -47,7 +51,7 @@ Only the current platform's Shell tool is registered.
 
 ### 2. Configure a model
 
-Create a local `.env` with your endpoint, key, and model ID:
+Copy [.env.example](.env.example) to a local `.env` (keep your existing `.env` if present), then set your endpoint, key, and model ID. Local `.env` files are ignored by Git; never commit real credentials.
 
 ```dotenv
 OPENAI_BASE_URL=https://api.openai.com/v1
@@ -62,6 +66,8 @@ The example below explicitly calls `load_dotenv()`. The library constructors rec
 ### 3. Run an Agent
 
 Save this as `example.py` in the repository root:
+
+This example makes real model requests and may incur provider charges. It also exposes local file and Shell tools with your process's permissions; use a workspace you intend the Agent to access.
 
 ```python
 import asyncio
@@ -302,21 +308,43 @@ The [MCP module](src/tabagent/mcp/) uses **FastMCP** and can be used independent
 - **Execution:** explicit `(server_id, name)` routing and complete tool results. Resources and prompts are currently discovered, not read or rendered.
 - **Lifecycle:** bounded startup concurrency, independent metadata discovery, explicit reconnect, and tracked cleanup.
 
-Provide your server configuration in `resources/mcp_config.json`, for example:
+Review [resources/mcp_config.json](resources/mcp_config.json) before connecting. The checked-in configuration contains local development settings, including Windows `cmd.exe` commands and machine-specific absolute paths. Adapt paths and commands to your machine, and disable or remove servers you do not intend to start.
+
+For a minimal configuration with only the time server, use:
 
 ```json
 {
   "mcpServers": {
-    "local-service": {
+    "time": {
+      "transport": "stdio",
       "command": "uvx",
-      "args": ["<your-mcp-server-package>"],
-      "cwd": ".."
+      "args": [
+        "--from",
+        "mcp-server-time==2026.10.19",
+        "mcp-server-time"
+      ],
+      "cwd": "..",
+      "env": {
+        "PYTHONIOENCODING": "utf-8"
+      },
+      "required": true,
+      "connect_timeout": 180.0
     }
   }
 }
 ```
 
-Replace the package placeholder with an actual MCP server. The command must be available on `PATH`. Relative `cwd` is resolved from the configuration file's directory.
+Save the configuration to `resources/mcp_config.json`, or pass your own JSON path to the manager. `uvx` must be available on `PATH`; the first run may download the server package and requires network access. Only launch server packages you trust. Relative `cwd` is resolved from the configuration file's directory, so `".."` points to the repository root for this file.
+
+MCP configuration supports `${NAME}` references in string values. Values come from the current process environment; the loader does not read `.env` automatically. If needed, call `load_dotenv()` before loading the configuration or connecting. Keep real credentials out of committed JSON files.
+
+To validate configuration without starting any servers or making model requests:
+
+```bash
+uv run --locked python -c "from tabagent.mcp import load_mcp_config; config = load_mcp_config('resources/mcp_config.json'); print('Configured servers:', ', '.join(config.servers))"
+```
+
+This checks the configuration and local working directories, not executable availability, connectivity, or authentication. After reviewing the configuration, the following Python example actually starts the configured services and discovers their capabilities:
 
 ```python
 import asyncio
@@ -345,9 +373,11 @@ Invoke a discovered tool with `await manager.call_tool(server_id=..., name=..., 
 
 By default, opening waits for tool discovery; `wait_ready(include_metadata=True)` also waits for the other catalogs. `connect(wait_for_optional=False)` allows optional services to start in the background. Cleanup timeouts remain visible through `cleanup_error` and `cleanup_pending`.
 
+`startup_concurrency` limits simultaneous server startup, not the total number of connected servers or concurrent tool calls. Setting a server's `required` field to `true` makes connection or tool-discovery failure fail the manager's startup; optional server errors are available through their status and catalog.
+
 **MCP is not yet wired into `TabAgentApp` or `ToolRegistry`.** The client module is implemented; the Agent adapter and MCP middleware are the next integration layer.
 
-See the [MCP guide](src/tabagent/mcp/README.md) for complete configuration, authentication, lifecycle behavior, and tests. Actual OAuth login needs validation against your chosen service.
+For configuration fields and validation rules, see [config.py](src/tabagent/mcp/config.py) and [config_loader.py](src/tabagent/mcp/config_loader.py); lifecycle coordination is implemented in [manager.py](src/tabagent/mcp/manager.py). Actual OAuth login needs validation against your chosen service.
 
 ## Logging
 
@@ -364,25 +394,28 @@ Both sinks use queued writes. Configuration is applied when [`core/logger.py`](s
 
 ## Development
 
-Run the independent MCP regression suite without model credentials:
+The current `test/` directory contains local checks and manual or live-service examples, not a comprehensive regression suite. Development dependencies are installed by the default `uv sync --locked` command.
+
+Start with these local examples, which do not load model credentials, call model APIs, or start MCP servers:
 
 ```bash
-uv run --locked python -B -m pytest src/tabagent/mcp/tests -q -p no:cacheprovider
+uv run --locked python -B -m pytest test/test_function.py test/test_thread.py -q -p no:cacheprovider
 ```
 
-It covers configuration, discovery limits, cancellation and cleanup, reconnect, real in-memory and stdio services, and local HTTP/SSE transports.
+They exercise function inspection, tool registration, and basic thread coordination. Passing them does not validate the Agent's model integration or MCP transports and authentication. There is no dedicated MCP regression suite in the current checkout; use the configuration-only check above for a basic MCP configuration check.
 
-The top-level `test/` directory also contains manual examples:
+Other examples should be selected individually after inspecting their requirements:
 
-| Command | Purpose |
+| Command | Purpose and requirements |
 | --- | --- |
-| `uv run --locked pytest -s test/test_function.py` | Inspect local function registration and Schema generation |
-| `uv run --locked pytest -s test/test_logger.py` | Exercise console/file logging |
-| `uv run --locked pytest -s test/test_agent.py::test_agent` | Interactive arithmetic Agent; enter `exit` to quit |
-| `uv run --locked pytest -s test/test_app.py::test_app_with_middleware` | Observe middleware execution order |
-| `uv run --locked pytest -s test/test_llm.py::test_llm_model_list` | Query a configured provider's model list |
+| `uv run --locked pytest -s test/test_function.py` | Inspect function registration and Schema output; no model credentials needed |
+| `uv run --locked pytest -s test/test_logger.py` | Exercise console/file logging; writes local logs |
+| `uv run --locked pytest -s test/test_mcp.py` | Inspect manager construction only; adjust the hard-coded config path first; does not connect to servers |
+| `uv run --locked pytest -s test/test_agent.py::test_agent` | Interactive arithmetic Agent; requires model credentials and network access; enter `exit` to quit |
+| `uv run --locked pytest -s test/test_app.py::test_app_with_middleware` | Observe middleware execution with a real model; requires credentials and network access |
+| `uv run --locked pytest -s test/test_llm.py::test_llm_model_list` | Query a real provider's model list; requires credentials and network access |
 
-Model examples make real API requests. Some examples wait for terminal input or contain machine-specific workspace paths. Inspect and adjust them before running; `-s` allows interactive input. A bare `pytest` targets `test/` and does **not** include the MCP regression suite automatically.
+Model examples make real API requests and may incur charges. Some examples wait for terminal input, read or modify local files, or contain machine-specific workspace paths. Inspect and adjust them before running; `-s` disables capture for interactive input and output. A bare `pytest` targets all of `test/`, including live and interactive examples; it is not a safe offline test command.
 
 For changes, keep the scope focused, add regression coverage for behavior that can fail, and keep the English and Chinese READMEs aligned.
 
@@ -401,10 +434,14 @@ src/tabagent/
 │       ├── shell/        # Platform-specific command launchers
 │       ├── process/      # Shared job manager and process tools
 │       └── web_search/   # Placeholder
-├── mcp/                  # Standalone FastMCP client, guide, and regression tests
+├── mcp/                  # Standalone FastMCP client, configuration, and discovery
 └── skill/                # Placeholder
-resources/                # User-supplied MCP configuration
+resources/                # MCP configuration; review local paths and commands
 test/                     # Local checks and manual/live examples
+.env.example              # Model configuration template; no real credentials
+LICENSE                   # MIT license
+pyproject.toml            # Project metadata and runtime/dev dependency declarations
+uv.lock                   # Locked dependency versions
 README.md                 # English
 README.zh-CN.md           # Simplified Chinese
 ```
@@ -412,6 +449,8 @@ README.zh-CN.md           # Simplified Chinese
 ## Current scope
 
 The current implementation supports the Python Agent API, four middleware boundaries, local tools, managed jobs, and a standalone MCP client.
+
+It does not currently implement multi-agent orchestration. Connecting to several MCP servers is separate from coordinating several Agents.
 
 The following remain unfinished:
 
@@ -422,3 +461,13 @@ The following remain unfinished:
 - A complete CLI and broader automated coverage of the Agent, local tools, and platform behavior.
 
 The provider abstraction currently shares Responses-style event types with the Agent. Supporting another model protocol requires event adaptation as well as a new client implementation.
+
+## Feedback
+
+Maintained by **TangRuoJie**. Use [GitHub Issues](https://github.com/TangRj-Git/TabAgent/issues) for bug reports and feature requests. Include reproduction steps and your Python/operating-system versions, and remove credentials or private information from logs and configuration snippets.
+
+## License
+
+This project is licensed under the [MIT License](LICENSE).
+
+Copyright (c) 2026 TangRuoJie.
