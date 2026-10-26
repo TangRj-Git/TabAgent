@@ -15,9 +15,9 @@ from .models import MCPCollection
 
 
 async def _read_pages(
-    fetch: Callable[..., Awaitable[Any]],
-    attribute: str,
-    config: ServerConfig,
+        fetch: Callable[..., Awaitable[Any]],
+        attribute: str,
+        config: ServerConfig,
 ) -> list[Any]:
     items: list[Any] = []
     cursor: str | None = None
@@ -42,14 +42,14 @@ async def _read_pages(
 
 
 async def discover_collection[T](
-    *,
-    server_id: str,
-    operation: str,
-    supported: bool,
-    previous: MCPCollection[T],
-    fetch: Callable[..., Awaitable[Any]],
-    attribute: str,
-    config: ServerConfig,
+        *,
+        server_id: str,
+        operation: str,
+        supported: bool,
+        previous: MCPCollection[T],
+        fetch: Callable[..., Awaitable[Any]],
+        attribute: str,
+        config: ServerConfig,
 ) -> MCPCollection[T]:
     if not supported:
         return MCPCollection(status="unsupported", updated_at=datetime.now(UTC))
@@ -73,8 +73,8 @@ async def discover_collection[T](
 
 
 def discovery_queries(
-    client: Client,
-    capabilities: ServerCapabilities,
+        client: Client,
+        capabilities: ServerCapabilities,
 ) -> tuple[tuple[str, bool, Callable[..., Awaitable[Any]]], ...]:
     """查询描述由客户端分别调度，便于独立发布和取消每个分类。"""
     return (

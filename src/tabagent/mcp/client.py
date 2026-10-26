@@ -26,30 +26,42 @@ from .transport import create_client
 
 
 class MCPServerClient:
-    """一个实例只在一个事件循环中使用；目录读取返回独立快照。"""
+    """管理一个 MCP 服务；构造时不建立连接。"""
 
     def __init__(
             self,
             *,
-            server_id: str,  # server_id 是这个 MCP 服务在客户端侧的名字，用于区分和定位不同服务。
-            config: ServerConfig,
+            server_id: str,  # 服务标识，如 "time"、"fetch"。
+            config: ServerConfig,  # 单个服务的连接配置。
     ) -> None:
         if not isinstance(server_id, str) or not server_id or server_id != server_id.strip():
             raise MCPConfigError("server_id must be nonempty and have no surrounding whitespace.")
         if not isinstance(config, (StdioConfig, RemoteConfig)):
             raise MCPConfigError("config must be a StdioConfig or RemoteConfig instance.")
+
         self._server_id = server_id
-        self._config = config.model_copy(deep=True)
-        self._client: Client | None = None
+        self._config = config.model_copy(deep=True)  # 保存独立的配置副本。
+
+        self._client: Client | None = None  # 实际负责通信的 FastMCP 客户端。
+
+        # 本客户端持有的连接、目录查询、工具调用等任务，便于统一清理。
         self._work: set[asyncio.Task[Any]] = set()
-        self._connect_task: asyncio.Task[None] | None = None
-        self._close_task: asyncio.Task[None] | None = None
+
+        self._connect_task: asyncio.Task[None] | None = None  # 连接任务。
+        self._close_task: asyncio.Task[None] | None = None  # 关闭清理任务。
+
+        # 目录类别 → 查询任务，如 "tools"、"resources"、"prompts"。
         self._discoveries: dict[str, asyncio.Task[None]] = {}
-        self._closing = False
+
+        self._closing = False  # 是否正在关闭或仍有清理未完成。
+
+        # 保存工具、资源、Prompt、资源模板的目录数据。
         self._catalog = MCPServerCatalog(server_id=server_id)
+
+        # 保存连接状态、服务端信息和错误。
         self._info = MCPServerInfo(
             server_id=server_id,
-            transport=config.transport,
+            transport=config.transport,  # stdio、http 或 sse。
             state="disconnected" if config.enabled else "disabled",
         )
 
@@ -111,7 +123,11 @@ class MCPServerClient:
         if task is None or task.done():
             if self._client is not None:
                 raise MCPConnectionError(f"MCP server {self.server_id!r} must be closed before reopening.")
-            task = start_task(self._open(), name=f"mcp:{self.server_id}:connect", owner=self._work)
+            task = start_task(
+                self._open(),
+                name=f"mcp:{self.server_id}:connect",
+                owner=self._work
+            )
             self._connect_task = task
         try:
             await asyncio.shield(task)
@@ -131,6 +147,7 @@ class MCPServerClient:
     async def _open(self) -> None:
         if self._closing:
             raise asyncio.CancelledError
+
         self._info.state = "connecting"
         self._info.error = None
         try:

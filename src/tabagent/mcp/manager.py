@@ -51,8 +51,7 @@ class MCPClientManager:
                "fetch" -> 执行 open_one(fetch_client) 的 Task
            字典中的任务，与 self._work 中对应的任务是同一个对象，只是多保存一处引用，便于按 server_id 查找，不会导致任务重复执行。
 
-        3. self._connect_task：保存整个管理器的启动任务，
-           即执行 self._open(wait_for_optional) 的 Task，负责协调各服务的启动。
+        3. self._connect_task：保存整个管理器的启动任务，即执行 self._open(wait_for_optional) 的 Task，负责协调各服务的启动。
            这个任务也会加入 self._work；它只负责启动流程，并不是在管理器整个使用期间一直运行的任务。
 
         初始时，self._work 是空集合 set()，self._starts 是空字典 {}，self._connect_task 才是 None；空集合不等于 None，可以直接添加任务。
@@ -122,8 +121,7 @@ class MCPClientManager:
         """
         管理器与各个 MCP 客户端之间的启动任务关系。
 
-        整体上，是一个管理器启动任务创建并协调多个客户端启动任务，
-        每个客户端再管理自己的连接任务，而不是所有连接都在同一个 Task 中执行。
+        整体上，是一个管理器启动任务创建并协调多个客户端启动任务，每个客户端再管理自己的连接任务，而不是所有连接都在同一个 Task 中执行。
 
         一、三个任务层次
 
@@ -138,8 +136,7 @@ class MCPClientManager:
            这些任务也加入管理器的 self._work，并保存在 self._starts[server_id] 中。
 
         3. 客户端内部的连接任务：
-           client.connect() 内部会创建或复用客户端自己的连接 Task，
-           由这个任务执行客户端的 _open()，完成实际连接流程。
+           client.connect() 内部会创建或复用客户端自己的连接 Task，由这个任务执行客户端的 _open()，完成实际连接流程。
            这个任务由 client._connect_task 引用，并加入该客户端自己的 client._work。
            client._work 和管理器的 self._work 是不同对象的不同集合。
 
@@ -148,8 +145,7 @@ class MCPClientManager:
         connect() 和管理器的 _open() 创建任务时，都传入 owner=self._work。
         这里的 self 都指向同一个 MCPClientManager，因此使用的是同一个任务集合。
 
-        假设配置了 time 和 fetch 两个服务，在以下任务均已创建且尚未结束时，
-        管理器的任务集合可以表示为：
+        假设配置了 time 和 fetch 两个服务，在以下任务均已创建且尚未结束时，管理器的任务集合可以表示为：
 
             self._work = {
                 T_manager,  # 执行 self._open(wait_for_optional)
@@ -157,12 +153,10 @@ class MCPClientManager:
                 T_fetch,    # 执行 open_one(fetch_client)
             }
 
-        其中，T_manager 在执行过程中创建了 T_time 和 T_fetch，
-        但它们仍然是三个独立的 Task，由事件循环分别调度，并通过等待建立协作关系。
+        其中，T_manager 在执行过程中创建了 T_time 和 T_fetch，但它们仍然是三个独立的 Task，由事件循环分别调度，并通过等待建立协作关系。
         客户端内部的实际连接 Task 则由各自的 client._work 跟踪，不在上述集合中。
 
-        因此，“管理器启动任务运行时，又创建了各客户端的启动任务，
-        并将它们一起记录到管理器的 self._work 中”是准确的理解。
+        因此，“管理器启动任务运行时，又创建了各客户端的启动任务，并将它们一起记录到管理器的 self._work 中”是准确的理解。
 
         self._work 本身只是保存 Task 引用的集合，不是协程，也不是一个大 Task。
         任务结束后，完成回调会将其从所属的 _work 集合中移除。
@@ -192,6 +186,9 @@ class MCPClientManager:
             # 但取消不会通过这次 await 自动传给 task；任务的正常结果和异常仍会传播。
             # 它不阻止显式 task.cancel()，也不保证后续清理流程不会取消任务。
             await asyncio.shield(task)
+            # 如果任务尚未完成：当前 connect() 挂起，等待任务完成。
+            # 事件循环可以调度新任务，让它执行 _open()。
+            # shield 额外阻止等待者的取消通过这次 await 自动传播给 task。
         except BaseException as exc:
             if self._connect_task is task:
                 try:
@@ -274,7 +271,11 @@ class MCPClientManager:
             raise asyncio.CancelledError
         self._opened = True
 
-    async def wait_ready(self, *, include_metadata: bool = False) -> None:
+    async def wait_ready(
+            self,
+            *,
+            include_metadata: bool = False
+    ) -> None:
         """等待可选服务启动；按需再等待资源、Prompt 和资源模板目录。"""
         self._require_open()
         if self._starts:
@@ -289,16 +290,23 @@ class MCPClientManager:
             ))
         self._require_open()
 
-    def get_catalog(self) -> MCPCatalog:
-        return MCPCatalog(servers={
-            name: client.get_catalog() for name, client in self._clients.items()
-        })
-
-    def get_server_info(self, server_id: str) -> MCPServerInfo:
+    def get_server_info(
+            self,
+            server_id: str
+    ) -> MCPServerInfo:
         return self._get_client(server_id).get_server_info()
 
     def get_server_infos(self) -> dict[str, MCPServerInfo]:
-        return {name: client.get_server_info() for name, client in self._clients.items()}
+        return {
+            name: client.get_server_info()
+            for name, client in self._clients.items()
+        }
+
+    def get_catalog(self) -> MCPCatalog:
+        return MCPCatalog(servers={
+            name: client.get_catalog()
+            for name, client in self._clients.items()
+        })
 
     def get_tools(self) -> list[MCPToolDefinition]:
         """只聚合已连接、工具目录查询成功且未过期的定义。"""
@@ -308,10 +316,17 @@ class MCPClientManager:
                 continue
             collection = client.get_tools()
             if collection.status == "ready" and not collection.stale:
-                tools.extend(MCPToolDefinition(server_id, tool) for tool in collection.items)
+                tools.extend(
+                    MCPToolDefinition(server_id, tool)
+                    for tool in collection.items
+                )
         return tools
 
-    async def refresh(self, *, server_id: str | None = None) -> MCPCatalog:
+    async def refresh(
+            self,
+            *,
+            server_id: str | None = None
+    ) -> MCPCatalog:
         """刷新远程定义；不重读配置、不自动重连；各分类单独发布结果。"""
         self._require_open()
         clients = (
@@ -323,24 +338,10 @@ class MCPClientManager:
         self._require_open()
         return self.get_catalog()
 
-    async def reconnect(self, *, server_id: str) -> MCPServerCatalog:
-        """只重连指定服务；同一服务并发重连共享一个任务，不重放工具调用。"""
-        self._require_open()
-        client = self._get_client(server_id)
-        starting = self._starts.get(server_id)
-        if starting is not None and not starting.done():
-            raise MCPConnectionError("Server startup is still in progress; await wait_ready() first.")
-        task = self._reconnects.get(server_id)
-        if task is None or task.done():
-            task = start_task(
-                self._reconnect(client), name=f"mcp:manager:reconnect:{server_id}", owner=self._work,
-            )
-            self._reconnects[server_id] = task
-        # 同一服务的并发重连共享 task；shield 避免某个等待者取消时连带取消共享重连。
-        # 重连任务仍由管理器持有，关闭管理器时可以显式取消它。
-        return deepcopy(await asyncio.shield(task))
-
-    async def _reconnect(self, client: MCPServerClient) -> MCPServerCatalog:
+    async def _reconnect(
+            self,
+            client: MCPServerClient
+    ) -> MCPServerCatalog:
         await client.aclose()
         self._require_open()
         await client.connect()
@@ -350,6 +351,29 @@ class MCPClientManager:
                 info=client.get_tools().error,
             )
         return client.get_catalog()
+
+    async def reconnect(
+            self,
+            *,
+            server_id: str
+    ) -> MCPServerCatalog:
+        """只重连指定服务；同一服务并发重连共享一个任务，不重放工具调用。"""
+        self._require_open()
+        client = self._get_client(server_id)
+        starting = self._starts.get(server_id)
+        if starting is not None and not starting.done():
+            raise MCPConnectionError("Server startup is still in progress; await wait_ready() first.")
+        task = self._reconnects.get(server_id)
+        if task is None or task.done():
+            task = start_task(
+                self._reconnect(client),
+                name=f"mcp:manager:reconnect:{server_id}",
+                owner=self._work,
+            )
+            self._reconnects[server_id] = task
+        # 同一服务的并发重连共享 task；shield 避免某个等待者取消时连带取消共享重连。
+        # 重连任务仍由管理器持有，关闭管理器时可以显式取消它。
+        return deepcopy(await asyncio.shield(task))
 
     async def call_tool(
             self,
@@ -361,7 +385,9 @@ class MCPClientManager:
     ) -> CallToolResult:
         self._require_open()
         return await self._get_client(server_id).call_tool(
-            name=name, arguments=arguments, timeout=timeout,
+            name=name,
+            arguments=arguments,
+            timeout=timeout,
         )
 
     async def _shutdown(self) -> None:
@@ -369,7 +395,7 @@ class MCPClientManager:
         for task in pending:
             # 直接向任务发送取消请求；shield 只阻止等待者取消的自动传播，不阻止此操作。
             task.cancel()
-        clients = tuple(self._clients.values())
+        clients: tuple = tuple(self._clients.values())
         # 独立关闭所有服务，某一服务的超时/异常不会阻止尝试关闭其余服务。
         closing = [
             start_task(client.aclose(), name=f"mcp:manager:close:{client.server_id}")

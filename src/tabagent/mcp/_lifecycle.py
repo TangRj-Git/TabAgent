@@ -41,6 +41,7 @@ def start_task[T](
     因此使用 `if owner is not None`：只要提供了集合，即使为空，也执行 owner.add(task)。
     如果改成 `if owner`，空集合会被视为 False，导致跳过任务登记。
     """
+    # 它会创建任务，并交给事件循环调度。只是默认情况下，新任务不会立即打断当前协程，而是等事件循环获得调度机会再运行。
     task = asyncio.create_task(  # 将协程包装成任务，交给当前事件循环调度执行
         coroutine,  # 指定要执行的协程对象
         name=name,  # 为创建的任务设置名称
