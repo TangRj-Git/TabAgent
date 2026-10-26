@@ -4,7 +4,8 @@ import json
 import os
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
+from urllib.parse import urlsplit
 
 from pydantic import ValidationError
 
@@ -58,6 +59,18 @@ def _expand_environment(value: Any) -> Any:
     return value
 
 
+def _infer_remote_transport(url: Any) -> Literal["http", "sse"]:
+    """与 FastMCP 一致：URL 路径含 /sse 段时推断为 SSE，其他情况使用 HTTP。"""
+    if not isinstance(url, str):
+        return "http"
+    try:
+        path = urlsplit(url).path
+    except ValueError:
+        # 非法 URL 留给配置模型统一校验，避免在推断阶段泄露原始输入。
+        return "http"
+    return "sse" if re.search(r"/sse(/|\?|&|$)", path) else "http"
+
+
 def load_mcp_config(config_path: str | Path) -> MCPClientConfig:
     """加载必填路径；相对 cwd 以配置文件所在目录为基准。"""
     path = resolve_config_path(config_path)
@@ -89,7 +102,7 @@ def load_mcp_config(config_path: str | Path) -> MCPClientConfig:
             if "command" in entry and "url" not in entry:
                 entry["transport"] = "stdio"
             elif "url" in entry and "command" not in entry:
-                entry["transport"] = "http"
+                entry["transport"] = _infer_remote_transport(entry["url"])
         if entry.get("transport") == "streamable-http":
             entry["transport"] = "http"
         if entry.get("transport") == "stdio" and entry.get("enabled") is not False:
@@ -120,7 +133,7 @@ def load_mcp_config(config_path: str | Path) -> MCPClientConfig:
         raise MCPConfigError(f"Invalid MCP configuration ({issues}).") from None
 
 
-"""
+r"""
 {
   "mcpServers": {
     "python_tools": {

@@ -35,7 +35,9 @@ def create_client(
         transport,
         name=f"TabAgent/{server_id}",
         auth=auth,
-        timeout=config.request_timeout,
+        # 工具调用单独传入 request_timeout，不将它用作全局会话超时。
+        # 否则较短的工具超时也会中断握手和目录发现；这两阶段已有各自的时限。
+        timeout=None,
         init_timeout=config.connect_timeout,
         mode="auto",
         cache=False,

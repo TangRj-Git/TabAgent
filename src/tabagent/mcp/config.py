@@ -3,7 +3,7 @@
 from typing import Annotated, Literal, Self
 from urllib.parse import urlsplit
 
-from pydantic import BaseModel, ConfigDict, Field, SecretStr, model_validator
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
 
 
 class _Config(BaseModel):
@@ -181,6 +181,15 @@ class RemoteConfig(MCPServerConfig):
     url: str = Field(min_length=1, repr=False)
     headers: dict[str, SecretStr] = Field(default_factory=dict, repr=False)
     auth: AuthConfig | None = Field(default=None, repr=False)
+
+    @field_validator("url")
+    @classmethod
+    def normalize_url_scheme(cls, url: str) -> str:
+        # FastMCP 要求小写 http/https；路径和查询参数可能区分大小写，必须原样保留。
+        scheme, separator, remainder = url.partition(":")
+        if scheme.lower() in {"http", "https"}:
+            return scheme.lower() + separator + remainder
+        return url
 
     @model_validator(mode="after")
     def validate_remote(self) -> Self:
