@@ -1,8 +1,9 @@
 from types import TracebackType
-from typing import Literal
+from typing import Literal, Any
 
 from fastmcp import Client
 from fastmcp.client.transports import ClientTransport
+from mcp_types import Tool, CallToolResult
 
 from tabagent.mcp_new.mcp_model import MCPServerInfo, MCPServerCatalog
 
@@ -68,6 +69,28 @@ class MCPServerClient:
             catalog.resource_templates = await self.client.list_resource_templates()
 
         return catalog
+
+    async def get_tools(self) -> list[Tool]:
+        """获取工具目录；客户端需已连接，不支持工具时返回空列表。"""
+        capabilities = self.client.server_capabilities
+        if capabilities is None:
+            raise RuntimeError("MCP client must be connected and initialized.")
+
+        if capabilities.tools is None:
+            return []
+
+        return await self.client.list_tools()
+
+    async def call_tool(
+            self,
+            name: str,
+            arguments: dict[str, Any] | None = None,
+    ) -> CallToolResult:
+        """按名称和参数调用当前服务的工具，返回执行结果；客户端需已连接。"""
+        return await self.client.call_tool(
+            name=name,
+            arguments=arguments,
+        )
 
     async def __aenter__(self) -> "MCPServerClient":
         """建立底层连接，并返回当前包装对象。"""
