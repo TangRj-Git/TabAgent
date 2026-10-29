@@ -24,6 +24,13 @@ class MCPServerInfo:
 
 
 @dataclass
+class MCPAllServersInfo:
+    """保存所有 MCP 服务的基础信息；字典的键为 server_id，值为对应服务的信息。"""
+
+    servers: dict[str, MCPServerInfo] = field(default_factory=dict)
+
+
+@dataclass
 class MCPServerCatalog:
     """保存一个 MCP 服务的能力目录。"""
 

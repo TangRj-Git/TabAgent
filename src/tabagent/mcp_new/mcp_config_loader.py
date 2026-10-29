@@ -1,3 +1,4 @@
+import asyncio
 import json
 from pathlib import Path
 
@@ -13,9 +14,11 @@ class MCPConfigLoader:
     ) -> None:
         self.config_path = Path(config_path)
 
-    def load(self) -> MCPClientConfig:
-        content = self.config_path.read_text(
+    async def load(self) -> MCPClientConfig:
+        content = await asyncio.to_thread(
+            self.config_path.read_text,
             encoding="utf-8-sig",
+            errors=None,
         )
 
         raw = json.loads(content)

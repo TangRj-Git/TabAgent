@@ -1,18 +1,84 @@
+from types import TracebackType
+from typing import Literal
+
 from fastmcp import Client
 from fastmcp.client.transports import ClientTransport
 
+from tabagent.mcp_new.mcp_model import MCPServerInfo, MCPServerCatalog
+
 
 class MCPServerClient:
+    """
+    封装单个 MCP 服务的客户端。
+
+    创建实例时只构造客户端对象，不会建立连接。
+    使用 async with 或 AsyncExitStack 进入异步上下文后，
+    才会建立连接并完成 MCP 协议初始化，同时返回当前 MCPServerClient 对象。
+
+    get_server_info()、get_catalog() 以及底层客户端的工具调用，
+    都需要在连接保持打开期间使用，这些方法不会自动建立连接。
+
+    退出异步上下文时，调用底层客户端的退出方法，执行连接清理。
+    """
+
     def __init__(
             self,
-            name: str,
+            server_id: str,
             transport: ClientTransport,
+            transport_type: Literal["stdio", "sse", "http", "streamable-http"],
     ) -> None:
         """FastMCP 的连接和请求操作是异步的。"""
-        self.name = name
+        self.server_id = server_id
         self.transport = transport
+        self.transport_type = transport_type
 
         self.client = Client(
-            name=self.name,
+            name=self.server_id,
             transport=self.transport,
         )
+
+    def get_server_info(self) -> MCPServerInfo:
+        """读取当前连接中的服务端基础信息。"""
+        if not self.client.is_connected():
+            raise RuntimeError("MCP client is not connected.")
+
+        return MCPServerInfo(
+            server_id=self.server_id,
+            transport=self.transport_type,
+            instructions=self.client.instructions,
+            protocol_version=self.client.protocol_version,
+            server_info=self.client.server_info,
+            server_capabilities=self.client.server_capabilities,
+        )
+
+    async def get_catalog(self) -> MCPServerCatalog:
+        """按服务端声明的能力获取目录。"""
+        capabilities = self.client.server_capabilities
+        if capabilities is None:
+            raise RuntimeError("MCP client must be connected and initialized.")
+
+        catalog = MCPServerCatalog()
+
+        if capabilities.tools is not None:
+            catalog.tools = await self.client.list_tools()
+        if capabilities.prompts is not None:
+            catalog.prompts = await self.client.list_prompts()
+        if capabilities.resources is not None:
+            catalog.resources = await self.client.list_resources()
+            catalog.resource_templates = await self.client.list_resource_templates()
+
+        return catalog
+
+    async def __aenter__(self) -> "MCPServerClient":
+        """建立底层连接，并返回当前包装对象。"""
+        await self.client.__aenter__()
+        return self
+
+    async def __aexit__(
+            self,
+            exc_type: type[BaseException] | None,
+            exc_value: BaseException | None,
+            traceback: TracebackType | None,
+    ) -> None:
+        """退出客户端上下文，释放连接。"""
+        await self.client.__aexit__(exc_type, exc_value, traceback)
