@@ -1,8 +1,11 @@
 import asyncio
 
+from pydantic import TypeAdapter
+
 from tabagent.mcp_new.create_transport import create_transport
 from tabagent.mcp_new.mcp_client import MCPServerClient
 from tabagent.mcp_new.mcp_config_loader import MCPConfigLoader
+from tabagent.mcp_new.mcp_model import MCPServerCatalog, MCPAllServersCatalog, MCPServerInfo
 
 
 def test_mcp_1() -> None:
@@ -18,32 +21,52 @@ def test_mcp_1() -> None:
         )
     )
 
-    for value in mcp_config.servers.values():
-        print(value)
-
-    time = mcp_config.servers["time"]
-    print(time)
-
+    server_id = "time"
+    time = mcp_config.servers[server_id]
     time_stdio = create_transport(time)
-    print(time_stdio)
 
     time_mcp = MCPServerClient(
-        name="time",
+        name=server_id,
         transport=time_stdio,
     )
-    print(time_mcp)
-    print(time_mcp.name)
 
     async def run() -> None:
         async with time_mcp.client as client:
-            print(client.name)
+            mcp_server_info = MCPServerInfo(
+                server_id=server_id,
+                transport=time.transport,
+                instructions=client.instructions,
+                protocol_version=client.protocol_version,
+                server_info=client.server_info,
+                server_capabilities=client.server_capabilities,
+            )
+            print(mcp_server_info)
 
             tools = await client.list_tools()
-            for tool in tools:
-                print(tool.name)
-                print(tool.title)
-                print(tool.description)
-                print(tool.input_schema)
+            prompts = await client.list_prompts()
+            resources = await client.list_resources()
+            resource_template = await client.list_resource_templates()
+
+            time_catalog = MCPServerCatalog(
+                tools=tools,
+                prompts=prompts,
+                resources=resources,
+                resource_templates=resource_template,
+            )
+            adapter = TypeAdapter(MCPServerCatalog)
+
+            print(
+                adapter.dump_json(
+                    time_catalog,
+                    indent=2,
+                    ensure_ascii=False,
+                ).decode("utf-8")
+            )
+
+            mcp_all_servers_catalog = MCPAllServersCatalog(
+                servers={"time": time_catalog}
+            )
+            print(mcp_all_servers_catalog)
 
             result = await client.call_tool(
                 name="get_current_time",

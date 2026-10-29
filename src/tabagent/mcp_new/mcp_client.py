@@ -9,7 +9,7 @@ class MCPServerClient:
             transport: ClientTransport,
     ) -> None:
         """FastMCP 的连接和请求操作是异步的。"""
-        self.name = f"TabAgent/{name}"
+        self.name = name
         self.transport = transport
 
         self.client = Client(
