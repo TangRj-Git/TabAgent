@@ -1378,6 +1378,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "fastmcp" },
+    { name = "httpx2" },
     { name = "loguru" },
     { name = "mcp-types" },
     { name = "openai" },
@@ -1393,6 +1394,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "fastmcp", specifier = ">=4.1.1" },
+    { name = "httpx2", specifier = ">=2.13.1" },
     { name = "loguru", specifier = ">=0.7.3" },
     { name = "mcp-types", specifier = ">=2.3.0,<3" },
     { name = "openai", specifier = ">=3.29.0" },

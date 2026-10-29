@@ -309,7 +309,6 @@ class MCPClientManager:
         })
 
     def get_tools(self) -> list[MCPToolDefinition]:
-        """只聚合已连接、工具目录查询成功且未过期的定义。"""
         tools: list[MCPToolDefinition] = []
         for server_id, client in self._clients.items():
             if client.get_server_info().state != "connected":
