@@ -1,6 +1,6 @@
 from typing import Literal, Annotated
 
-from pydantic import BaseModel, ConfigDict, SecretStr, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from tabagent.mcp_new.mcp_auth import AuthConfig
 

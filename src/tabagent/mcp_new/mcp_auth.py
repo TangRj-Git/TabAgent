@@ -1,11 +1,13 @@
 from typing import Literal, Annotated
 
+import httpx2
+from fastmcp.client import BearerAuth, OAuth, ClientCredentialsOAuthProvider
 from pydantic import BaseModel, ConfigDict, SecretStr, Field
 
 
 class AuthBaseConfig(BaseModel):
     model_config = ConfigDict(
-        extra="forbid",
+        extra="allow",
         strict=True,
         frozen=True,
         validate_default=True,
@@ -54,3 +56,39 @@ AuthConfig = Annotated[
     NoAuthConfig | BearerAuthConfig | OAuthConfig | ClientCredentialsConfig,
     Field(discriminator="type"),
 ]
+
+
+def create_auth(config: AuthConfig | None) -> httpx2.Auth | None:
+    if config is None or isinstance(config, NoAuthConfig):
+        return None
+
+    if isinstance(config, BearerAuthConfig):
+        return BearerAuth(
+            token=config.token.get_secret_value(),
+        )
+
+    if isinstance(config, OAuthConfig):
+        return OAuth(
+            scopes=config.scopes,
+            callback_port=config.callback_port,
+            client_id=config.client_id,
+            client_secret=(
+                config.client_secret.get_secret_value()
+                if config.client_secret is not None
+                else None
+            ),
+        )
+
+    if isinstance(config, ClientCredentialsConfig):
+        return ClientCredentialsOAuthProvider(
+            client_id=config.client_id,
+            client_secret=(
+                config.client_secret.get_secret_value()
+                if config.client_secret is not None
+                else None
+            ),
+            scopes=config.scopes,
+            token_endpoint_auth_method=config.token_endpoint_auth_method,
+        )
+
+    raise TypeError(f"Unsupported authentication configuration type: {type(config).__name__}.")
