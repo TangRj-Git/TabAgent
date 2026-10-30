@@ -1,23 +1,24 @@
 import asyncio
-from contextlib import AsyncExitStack
 from typing import Any
 
-from mcp_types import CallToolResult, Tool
+from fastmcp.client.client import CallToolResult
+from mcp_types import Tool
 
 from tabagent.core.function import Function
 from tabagent.mcp.create_transport import create_transport
-from tabagent.mcp.client import MCPServerClient
+from tabagent.mcp.client import MCPClientStatus, MCPServerClient
 from tabagent.mcp.model import MCPAllServersInfo, MCPAllServersCatalog
 from tabagent.mcp.transport import MCPClientConfig
 
 
 class MCPServerClientManager:
     """
-    管理多个 MCP 客户端。
+    保存多个 MCP 客户端，每个客户端独立管理自己的连接。
 
     创建实例时只构造客户端，调用 connect() 后建立连接。
     连接保持期间，可以按 server_id 获取客户端并调用工具。
-    所有业务调用结束后，使用 aclose() 统一关闭。
+    普通服务启动失败时记录错误，必需服务失败时在批量启动结束后抛出异常。
+    所有业务调用结束后，使用 aclose() 最终关闭，之后禁止再次启动服务。
 
     一个实例只在同一个事件循环中使用。
     """
@@ -25,90 +26,129 @@ class MCPServerClientManager:
     def __init__(
             self,
             mcp_client_config: MCPClientConfig,
+            *,
+            connect_timeout: float = 180.0,
+            required_servers: set[str] | None = None,
     ) -> None:
+        self._required_servers = frozenset(required_servers or ())
+        unknown = self._required_servers - mcp_client_config.servers.keys()
+        if unknown:
+            raise ValueError(f"Unknown required MCP servers: {sorted(unknown)}.")
+
         self._clients: dict[str, MCPServerClient] = {
             server_id: MCPServerClient(
                 server_id=server_id,
-                transport=create_transport(serverConfig),
-                transport_type=serverConfig.transport,
+                transport=create_transport(config),
+                transport_type=config.transport,
+                connect_timeout=connect_timeout,
             )
-            for server_id, serverConfig in mcp_client_config.servers.items()
+            for server_id, config in mcp_client_config.servers.items()
+        }
+        self._closed = False
+
+    def _require_open(self) -> None:
+        if self._closed:
+            raise RuntimeError("MCP client manager is closed.")
+
+    def _lookup(self, server_id: str) -> MCPServerClient:
+        """查找客户端，不要求它已经连接。"""
+        try:
+            return self._clients[server_id]
+        except KeyError:
+            raise KeyError(f"Unknown MCP server: {server_id!r}.") from None
+
+    def _connected_clients(self) -> dict[str, MCPServerClient]:
+        """返回当前可用客户端的快照，供目录汇总使用。"""
+        self._require_open()
+        return {
+            server_id: client
+            for server_id, client in self._clients.items()
+            if client.is_connected()
         }
 
-        # 持有各客户端的异步上下文，直到统一关闭。
-        self._stack: AsyncExitStack | None = None
+    async def connect(self) -> dict[str, str | None]:
+        """依次启动；结果中 None 表示成功，字符串表示错误，取消请求继续传播。"""
+        self._require_open()
+        results: dict[str, str | None] = {}
 
-        # 防止多次连接或关闭操作同时进行。
-        self._lifecycle_lock = asyncio.Lock()
-
-    async def connect(self) -> None:
-        """依次连接所有服务；任一连接失败时，清理本次已打开的连接。"""
-        async with self._lifecycle_lock:
-            if self._stack is not None:
-                return
-
-            stack = AsyncExitStack()
-
+        for server_id in self._clients:
+            self._require_open()
             try:
-                for server_client in self._clients.values():
-                    # 提前登记关闭操作，连接失败时也能清理。
-                    # 显式 close() 还会关闭 keep_alive=True 的传输。
-                    stack.push_async_callback(server_client.client.close)
+                await self.connect_server(server_id)
+            except Exception as error:
+                results[server_id] = f"{type(error).__name__}: {error}"
+            else:
+                results[server_id] = None
 
-                    # 进入包装对象的上下文，建立底层连接。
-                    await stack.enter_async_context(server_client)
+        self._require_open()
+        failures = {
+            server_id: results[server_id]
+            for server_id in self._required_servers
+            if results[server_id] is not None
+        }
+        if failures:
+            # 已成功连接的服务仍保留，由调用方决定继续使用或统一关闭。
+            raise RuntimeError(f"Required MCP servers failed: {failures}")
+        return results
 
-            except BaseException:
-                # 包括连接异常，以及连接过程中收到的取消请求。
-                await stack.aclose()
-                raise
+    async def connect_server(self, server_id: str) -> None:
+        """连接指定服务。"""
+        self._require_open()
+        await self._lookup(server_id).connect()
 
-            self._stack = stack
+    async def disconnect_server(self, server_id: str) -> None:
+        """断开指定服务，之后允许重新连接。"""
+        self._require_open()
+        await self._lookup(server_id).disconnect()
+
+    async def reconnect_server(self, server_id: str) -> None:
+        """重新连接指定服务。"""
+        self._require_open()
+        await self._lookup(server_id).reconnect()
+
+    def get_status(self, server_id: str) -> MCPClientStatus:
+        """查询指定服务的状态，管理器关闭后也允许查询。"""
+        return self._lookup(server_id).get_status()
+
+    def get_all_statuses(self) -> dict[str, MCPClientStatus]:
+        """查询所有服务的状态。"""
+        return {
+            server_id: client.get_status()
+            for server_id, client in self._clients.items()
+        }
 
     def get_all_server_infos(self) -> MCPAllServersInfo:
         """读取所有已连接服务的基础信息，按 server_id 保存。"""
-        if self._stack is None:
-            raise RuntimeError("MCP client manager is not connected.")
-
         result: MCPAllServersInfo = MCPAllServersInfo()
 
-        for server_id, server_client in self._clients.items():
+        for server_id, server_client in self._connected_clients().items():
             result.servers[server_id] = server_client.get_server_info()
 
         return result
 
     async def get_all_catalogs(self) -> MCPAllServersCatalog:
         """依次获取所有已连接服务的能力目录，按 server_id 保存。"""
-        if self._stack is None:
-            raise RuntimeError("MCP client manager is not connected.")
-
         result: MCPAllServersCatalog = MCPAllServersCatalog()
 
-        for server_id, server_client in self._clients.items():
+        for server_id, server_client in self._connected_clients().items():
             result.servers[server_id] = await server_client.get_catalog()
 
         return result
 
     async def get_all_tools(self) -> list[Tool]:
         """依次获取所有已连接服务的原始工具目录，并合并返回。"""
-        if self._stack is None:
-            raise RuntimeError("MCP client manager is not connected.")
-
         tools: list[Tool] = []
 
-        for server_client in self._clients.values():
+        for server_client in self._connected_clients().values():
             tools.extend(await server_client.get_tools())
 
         return tools
 
     async def get_all_functions(self) -> list[Function]:
         """依次获取所有已连接服务的函数定义，并合并返回。"""
-        if self._stack is None:
-            raise RuntimeError("MCP client manager is not connected.")
-
         functions: list[Function] = []
 
-        for server_client in self._clients.values():
+        for server_client in self._connected_clients().values():
             functions.extend(await server_client.get_functions())
 
         return functions
@@ -118,15 +158,10 @@ class MCPServerClientManager:
             server_id: str,
     ) -> MCPServerClient:
         """根据服务标识获取已连接的客户端。"""
-        if self._stack is None:
-            raise RuntimeError("MCP client manager is not connected.")
+        self._require_open()
+        server_client = self._lookup(server_id)
 
-        try:
-            server_client = self._clients[server_id]
-        except KeyError:
-            raise KeyError(f"Unknown MCP server: {server_id!r}.") from None
-
-        if not server_client.client.is_connected():
+        if not server_client.is_connected():
             raise RuntimeError(
                 f"MCP server {server_id!r} is not connected."
             )
@@ -148,12 +183,17 @@ class MCPServerClientManager:
         )
 
     async def aclose(self) -> None:
-        """统一退出客户端上下文并关闭底层连接。"""
-        async with self._lifecycle_lock:
-            if self._stack is None:
-                return
-
-            stack = self._stack
-            self._stack = None
-
-            await stack.aclose()
+        """最终关闭全部客户端；尝试全部清理后，汇总抛出关闭异常。"""
+        self._closed = True
+        clients = list(self._clients.values())
+        results = await asyncio.gather(
+            *(client.aclose() for client in clients),
+            return_exceptions=True,
+        )
+        errors: list[BaseException] = []
+        for client, result in zip(clients, results):
+            if isinstance(result, BaseException):
+                result.add_note(f"MCP server: {client.server_id}")
+                errors.append(result)
+        if errors:
+            raise BaseExceptionGroup("Failed to close MCP clients.", errors)
