@@ -2,7 +2,7 @@ from typing import Literal, Annotated
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from tabagent.mcp_new.mcp_auth import AuthConfig
+from tabagent.mcp.auth import AuthConfig
 
 
 class TransportBaseConfig(BaseModel):

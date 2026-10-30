@@ -1,7 +1,7 @@
 import asyncio
 
-from tabagent.mcp_new.mcp_config_loader import MCPConfigLoader
-from tabagent.mcp_new.mcp_manager import MCPServerClientManager
+from tabagent.mcp.config_loader import MCPConfigLoader
+from tabagent.mcp.manager import MCPServerClientManager
 
 
 def test_mcp_manager_1() -> None:

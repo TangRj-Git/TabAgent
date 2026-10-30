@@ -2,8 +2,8 @@ from pathlib import Path
 
 from fastmcp.client import StdioTransport, SSETransport, StreamableHttpTransport, ClientTransport
 
-from tabagent.mcp_new.mcp_auth import create_auth
-from tabagent.mcp_new.mcp_transport import StdioConfig, SSEConfig, HttpConfig, ServerConfig
+from tabagent.mcp.auth import create_auth
+from tabagent.mcp.transport import StdioConfig, SSEConfig, HttpConfig, ServerConfig
 
 
 def create_stdio_transport(config: StdioConfig) -> StdioTransport:

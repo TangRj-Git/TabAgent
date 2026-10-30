@@ -2,7 +2,7 @@ import asyncio
 import json
 from pathlib import Path
 
-from tabagent.mcp_new.mcp_transport import MCPClientConfig
+from tabagent.mcp.transport import MCPClientConfig
 
 
 class MCPConfigLoader:

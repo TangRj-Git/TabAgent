@@ -5,10 +5,10 @@ from typing import Any
 from mcp_types import CallToolResult, Tool
 
 from tabagent.core.function import Function
-from tabagent.mcp_new.create_transport import create_transport
-from tabagent.mcp_new.mcp_client import MCPServerClient
-from tabagent.mcp_new.mcp_model import MCPAllServersInfo, MCPAllServersCatalog
-from tabagent.mcp_new.mcp_transport import MCPClientConfig
+from tabagent.mcp.create_transport import create_transport
+from tabagent.mcp.client import MCPServerClient
+from tabagent.mcp.model import MCPAllServersInfo, MCPAllServersCatalog
+from tabagent.mcp.transport import MCPClientConfig
 
 
 class MCPServerClientManager:

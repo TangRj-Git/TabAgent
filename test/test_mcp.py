@@ -3,10 +3,10 @@ from contextlib import AsyncExitStack
 
 from pydantic import TypeAdapter
 
-from tabagent.mcp_new.create_transport import create_transport
-from tabagent.mcp_new.mcp_client import MCPServerClient
-from tabagent.mcp_new.mcp_config_loader import MCPConfigLoader
-from tabagent.mcp_new.mcp_model import MCPServerCatalog, MCPAllServersCatalog, MCPServerInfo, MCPAllServersInfo
+from tabagent.mcp.create_transport import create_transport
+from tabagent.mcp.client import MCPServerClient
+from tabagent.mcp.config_loader import MCPConfigLoader
+from tabagent.mcp.model import MCPServerCatalog, MCPAllServersCatalog, MCPServerInfo, MCPAllServersInfo
 
 
 def test_mcp_1() -> None:

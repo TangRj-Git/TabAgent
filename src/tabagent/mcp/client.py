@@ -6,7 +6,7 @@ from fastmcp.client.transports import ClientTransport
 from mcp_types import Tool, CallToolResult
 
 from tabagent.core.function import Function
-from tabagent.mcp_new.mcp_model import MCPServerInfo, MCPServerCatalog
+from tabagent.mcp.model import MCPServerInfo, MCPServerCatalog
 
 TOOL_TEMPLATE = {
     "name": "get_current_time",
