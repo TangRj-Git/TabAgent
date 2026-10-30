@@ -182,3 +182,26 @@ def test_mcp_3() -> None:
         )
 
     asyncio.run(run())
+
+
+def test_mcp_4() -> None:
+    async def run() -> None:
+        mcp_config_loader = MCPConfigLoader(
+            config_path=r"E:\OpenProject\TabAgent\resources\mcp_config.json"
+        )
+        mcp_config = await mcp_config_loader.load()
+
+        server_id = "time"
+        time = mcp_config.servers[server_id]
+        time_transport = create_transport(time)
+
+        time_mcp = MCPServerClient(
+            server_id=server_id,
+            transport=time_transport,
+            transport_type=time.transport,
+        )
+
+        async with time_mcp:
+            print(await time_mcp.get_functions())
+
+    asyncio.run(run())

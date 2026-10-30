@@ -5,7 +5,66 @@ from fastmcp import Client
 from fastmcp.client.transports import ClientTransport
 from mcp_types import Tool, CallToolResult
 
+from tabagent.core.function import Function
 from tabagent.mcp_new.mcp_model import MCPServerInfo, MCPServerCatalog
+
+TOOL_TEMPLATE = {
+    "name": "get_current_time",
+    "title": "null",
+    "description": "Get current time in a specific timezone",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "timezone": {
+                "description": "IANA timezone name (e.g., 'America/New_York', 'Europe/London'). Use 'Asia/Shanghai' as local timezone if no timezone provided by the user.",
+                "title": "Timezone",
+                "type": "string"
+            }
+        },
+        "required": [
+            "timezone"
+        ],
+        "title": "get_current_timeArguments"
+    },
+    "execution": "null",
+    "output_schema": {
+        "properties": {
+            "timezone": {
+                "title": "Timezone",
+                "type": "string"
+            },
+            "datetime": {
+                "title": "Datetime",
+                "type": "string"
+            },
+            "day_of_week": {
+                "title": "Day Of Week",
+                "type": "string"
+            },
+            "is_dst": {
+                "title": "Is Dst",
+                "type": "boolean"
+            }
+        },
+        "required": [
+            "timezone",
+            "datetime",
+            "day_of_week",
+            "is_dst"
+        ],
+        "title": "TimeResult",
+        "type": "object"
+    },
+    "icons": "null",
+    "annotations": {
+        "title": "null",
+        "read_only_hint": "true",
+        "destructive_hint": "false",
+        "idempotent_hint": "true",
+        "open_world_hint": "false"
+    },
+    "meta": "null"
+}
 
 
 class MCPServerClient:
@@ -80,6 +139,25 @@ class MCPServerClient:
             return []
 
         return await self.client.list_tools()
+
+    async def get_functions(self) -> list[Function]:
+        """将当前服务的工具目录转换为提供给模型的函数定义。"""
+        tools = await self.get_tools()
+
+        functions: list[Function] = []
+
+        for tool in tools:
+            functions.append(
+                Function(
+                    name=tool.name,
+                    description=tool.description,
+                    parameters=tool.input_schema,
+                    output_schema=tool.output_schema,
+                    strict=False,
+                )
+            )
+
+        return functions
 
     async def call_tool(
             self,
